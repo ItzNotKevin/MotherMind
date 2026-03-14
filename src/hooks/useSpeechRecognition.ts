@@ -16,9 +16,25 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
   const [transcript, setTranscript] = useState('');
   const [error, setError] = useState('');
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const silenceTimeoutRef = useRef<number | null>(null);
   const shouldKeepListening = useRef(false);
   const accumulatedTranscript = useRef('');
   const transcriptRef = useRef('');
+
+  const clearSilenceTimeout = useCallback(() => {
+    if (silenceTimeoutRef.current !== null) {
+      window.clearTimeout(silenceTimeoutRef.current);
+      silenceTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleAutoStop = useCallback((delayMs: number) => {
+    clearSilenceTimeout();
+    silenceTimeoutRef.current = window.setTimeout(() => {
+      shouldKeepListening.current = false;
+      recognitionRef.current?.stop();
+    }, delayMs);
+  }, [clearSilenceTimeout]);
 
   const isSupported =
     typeof window !== 'undefined' &&
@@ -50,6 +66,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
     recognition.onstart = () => {
       setError('');
       setIsListening(true);
+      scheduleAutoStop(5000);
     };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
@@ -71,9 +88,11 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
       const latest = accumulatedTranscript.current + interim;
       transcriptRef.current = latest;
       setTranscript(latest);
+      scheduleAutoStop(1400);
     };
 
     recognition.onend = () => {
+      clearSilenceTimeout();
       if (shouldKeepListening.current) {
         try {
           recognition.start();
@@ -131,6 +150,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
 
   const stopListening = useCallback(() => {
     shouldKeepListening.current = false;
+    clearSilenceTimeout();
     recognitionRef.current?.stop();
     // Do NOT call setIsListening(false) here.
     // recognition.onend fires after all pending onresult events, so letting
@@ -143,7 +163,8 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
     transcriptRef.current = '';
     setTranscript('');
     setError('');
-  }, []);
+    clearSilenceTimeout();
+  }, [clearSilenceTimeout]);
 
   return { isListening, transcript, transcriptRef, isSupported, error, startListening, stopListening, resetTranscript };
 }

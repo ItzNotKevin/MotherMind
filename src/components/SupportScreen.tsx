@@ -41,6 +41,61 @@ const SCORE_STYLES = {
   try_again: { color: '#dc2626', emoji: '💪' },
 } as const;
 
+function normalizeText(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) =>
+    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost,
+      );
+    }
+  }
+
+  return dp[a.length][b.length];
+}
+
+function isCloseWordMatch(targetWord: string, spokenWord: string): boolean {
+  if (targetWord === spokenWord) return true;
+  if (targetWord.includes(spokenWord) || spokenWord.includes(targetWord)) return true;
+
+  const distance = levenshteinDistance(targetWord, spokenWord);
+  const longest = Math.max(targetWord.length, spokenWord.length);
+
+  return longest > 0 && distance / longest <= 0.34;
+}
+
+function getTranscriptPass(target: string, spoken: string): boolean {
+  const targetWords = normalizeText(target);
+  const spokenWords = normalizeText(spoken);
+
+  if (targetWords.length === 0 || spokenWords.length === 0) return false;
+
+  const matchedWords = targetWords.filter((targetWord) =>
+    spokenWords.some((spokenWord) => isCloseWordMatch(targetWord, spokenWord)),
+  ).length;
+  const ratio = matchedWords / targetWords.length;
+
+  if (targetWords.length === 1) return ratio >= 1;
+  if (targetWords.length === 2) return ratio >= 0.5;
+
+  return ratio >= 0.6;
+}
+
 export function SupportScreen({
   scenario,
   feedback,
@@ -98,10 +153,12 @@ export function SupportScreen({
   const [spokenText, setSpokenText] = useState('');
   const [feedbackResult, setFeedbackResult] = useState<PronunciationFeedback | null>(null);
   const [completedCount, setCompletedCount] = useState(0);
+  const [didPassStep, setDidPassStep] = useState(false);
 
   const currentStep = practiceSteps[stepIndex];
   const stepProgress = practiceSteps.length > 0 ? ((stepIndex + 1) / practiceSteps.length) * 100 : 0;
   const scoreStyle = feedbackResult ? SCORE_STYLES[feedbackResult.score] : null;
+  const passedCurrentStep = feedbackResult !== null && didPassStep;
 
   useEffect(() => {
     if (phase !== 'record' || isListening) return;
@@ -118,18 +175,26 @@ export function SupportScreen({
 
     getPronunciationFeedback(currentStep.text, spoken)
       .then((result) => {
+        const localPass = getTranscriptPass(currentStep.text, spoken);
+        const passed = result.score !== 'try_again' || localPass;
         setFeedbackResult(result);
-        if (result.score !== 'try_again') {
+        setDidPassStep(passed);
+        if (passed) {
           setCompletedCount((count) => Math.max(count, stepIndex + 1));
         }
         setPhase('result');
       })
       .catch(() => {
+        const localPass = getTranscriptPass(currentStep.text, spoken);
         setFeedbackResult({
-          score: 'good',
-          message: 'Good try! Keep practicing.',
-          word_tips: 'Listen again and try once more.',
+          score: localPass ? 'good' : 'try_again',
+          message: localPass ? 'Good try!' : 'Try again.',
+          word_tips: localPass ? 'Good enough to move on.' : 'Listen again and try once more.',
         });
+        setDidPassStep(localPass);
+        if (localPass) {
+          setCompletedCount((count) => Math.max(count, stepIndex + 1));
+        }
         setPhase('result');
       });
   }, [currentStep, isListening, phase, resetTranscript, stepIndex, transcriptRef]);
@@ -142,6 +207,7 @@ export function SupportScreen({
   const handleStartRecording = () => {
     setFeedbackResult(null);
     setSpokenText('');
+    setDidPassStep(false);
     resetTranscript();
     setPhase('record');
     startListening();
@@ -154,6 +220,7 @@ export function SupportScreen({
   const handleTryAgain = () => {
     setFeedbackResult(null);
     setSpokenText('');
+    setDidPassStep(false);
     resetTranscript();
     setPhase('ready');
   };
@@ -161,6 +228,7 @@ export function SupportScreen({
   const handleNext = () => {
     setFeedbackResult(null);
     setSpokenText('');
+    setDidPassStep(false);
     resetTranscript();
 
     if (stepIndex < practiceSteps.length - 1) {
@@ -195,53 +263,16 @@ export function SupportScreen({
         </header>
         <main className="main-content">
           <section className="complete-view animate-fade-in glass-panel" style={{ background: warmSurface }}>
-            <div
-              className="trophy-ring"
-              style={{
-                background: 'rgba(180, 123, 103, 0.12)',
-                border: '2px solid rgba(180, 123, 103, 0.2)',
-              }}
-            >
-              <span className="text-5xl" aria-hidden="true">
-                🌟
-              </span>
-            </div>
-
-            <h2 className="complete-title">Practice support</h2>
-            <p className="complete-subtitle">
-              Review your conversation in <strong style={{ color: '#b47b67' }}>{scenario.title}</strong>.
-            </p>
-
-            <div
-              className="mx-auto mt-5 max-w-xl rounded-[1.5rem] px-4 py-4"
-              style={{ background: 'rgba(255,251,247,0.88)', border: '1px solid rgba(180, 123, 103, 0.16)' }}
-            >
-              <p className="text-base font-medium leading-snug" style={{ color: '#b47b67' }}>
-                {feedback.encouragement}
+            <div className="mt-2 text-left">
+              <p className="text-sm font-semibold uppercase tracking-[0.16em]" style={{ color: '#b47b67' }}>
+                Practice
               </p>
+              <h2 className="mt-2 text-3xl font-semibold text-slate-900">Say it</h2>
+              <p className="mt-2 text-sm text-slate-500">{scenario.title}</p>
             </div>
 
             <div className="mt-6 grid gap-4 text-left">
-              {struggleTerms.length > 0 && (
-                <SupportCard title="Words to work on" emoji="🧩">
-                  <div className="flex flex-wrap gap-2">
-                    {struggleTerms.slice(0, 6).map((term) => (
-                      <span
-                        key={term}
-                        className="rounded-full px-3 py-2 text-sm font-semibold"
-                        style={{
-                          background: 'rgba(180, 123, 103, 0.12)',
-                          color: '#b47b67',
-                        }}
-                      >
-                        {term}
-                      </span>
-                    ))}
-                  </div>
-                </SupportCard>
-              )}
-
-              <SupportCard title="Say it step by step" emoji="🎯">
+              <SupportCard title="Practice" emoji="🎯">
                 {practiceSteps.length === 0 ? (
                   <p>No practice words available yet.</p>
                 ) : (
@@ -260,16 +291,23 @@ export function SupportScreen({
                     </div>
 
                     <div className="rounded-[1.2rem] border border-white/80 bg-white/82 p-4">
-                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        Step {Math.min(stepIndex + 1, practiceSteps.length)} of {practiceSteps.length}
+                      <p className="text-sm font-medium text-slate-500">
+                        {Math.min(stepIndex + 1, practiceSteps.length)} / {practiceSteps.length}
                       </p>
-                      <p className="mt-1 text-sm font-medium text-slate-500">{currentStep?.label}</p>
                       <p className="mt-2 text-xl font-semibold leading-snug text-slate-900">{currentStep?.text}</p>
-                      <p className="mt-2 text-sm text-slate-500">
-                        {phase === 'complete'
-                          ? 'You finished all practice steps.'
-                          : 'Listen, then tap the mic and say this out loud.'}
-                      </p>
+                      {struggleTerms.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {struggleTerms.slice(0, 3).map((term) => (
+                            <span
+                              key={term}
+                              className="rounded-full px-3 py-1.5 text-xs font-semibold"
+                              style={{ background: 'rgba(180, 123, 103, 0.12)', color: '#b47b67' }}
+                            >
+                              {term}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {speechError && (
@@ -285,7 +323,7 @@ export function SupportScreen({
                         disabled={!currentStep || isSpeaking || isListening || phase === 'analyzing' || phase === 'complete'}
                       >
                         <Volume2 size={18} />
-                        <span>Hear it</span>
+                        <span>Listen</span>
                       </button>
 
                       <button
@@ -308,28 +346,22 @@ export function SupportScreen({
                         }
                       >
                         {isListening ? <MicOff size={18} /> : <Mic size={18} />}
-                        <span>{isListening ? 'Stop mic' : 'Try saying it'}</span>
+                        <span>{isListening ? 'Listening...' : 'Speak'}</span>
                       </button>
                     </div>
 
                     <div className="rounded-[1.2rem] border border-white/80 bg-white/82 px-4 py-4">
-                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        Mic status
-                      </p>
                       <p className="mt-1 text-sm text-slate-700">
                         {!isSupported
-                          ? 'This browser does not support speech recognition.'
+                          ? 'Mic not available.'
                           : isListening
-                          ? 'Listening now. Tap "Stop mic" when you finish speaking.'
+                          ? 'Listening...'
                           : phase === 'analyzing'
-                          ? 'Checking your pronunciation now.'
-                          : 'Tap "Try saying it" to start.'}
+                          ? 'Checking...'
+                          : 'Tap Speak.'}
                       </p>
                       {(transcript || spokenText) && (
                         <>
-                          <p className="mt-3 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                            You said
-                          </p>
                           <p className="mt-1 text-sm text-slate-700">{transcript || spokenText}</p>
                         </>
                       )}
@@ -339,7 +371,7 @@ export function SupportScreen({
                       <div className="rounded-[1.2rem] border border-white/80 bg-white/82 px-4 py-4">
                         <div className="flex items-center gap-2">
                           <Loader2 size={18} className="animate-spin" style={{ color: '#b47b67' }} />
-                          <p className="text-sm font-semibold text-slate-800">Checking your pronunciation</p>
+                          <p className="text-sm font-semibold text-slate-800">Checking</p>
                         </div>
                       </div>
                     )}
@@ -349,17 +381,28 @@ export function SupportScreen({
                         <div className="flex items-center gap-2">
                           <CheckCircle2 size={18} style={{ color: scoreStyle.color }} />
                           <p className="text-sm font-semibold" style={{ color: scoreStyle.color }}>
-                            {scoreStyle.emoji} {feedbackResult.message}
+                            {passedCurrentStep ? 'Right' : 'Wrong'}
                           </p>
                         </div>
-                        <p className="mt-2 text-sm text-slate-700">{feedbackResult.word_tips}</p>
+                        <p className="mt-2 text-sm font-medium text-slate-700">
+                          {passedCurrentStep ? 'You can go to the next one.' : 'Listen. Then try again.'}
+                        </p>
+                        {!passedCurrentStep && (
+                          <p className="mt-2 text-sm text-slate-700">{feedbackResult.word_tips}</p>
+                        )}
                         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                          <button className="btn btn-secondary" onClick={handleTryAgain}>
-                            <RotateCcw size={18} />
-                            <span>Try again</span>
-                          </button>
-                          <button className="btn text-white" onClick={handleNext} style={{ background: primarySurface }}>
-                            <span>{stepIndex < practiceSteps.length - 1 ? 'Next step' : 'Finish practice'}</span>
+                          {!passedCurrentStep && (
+                            <button className="btn btn-secondary" onClick={handleTryAgain}>
+                              <RotateCcw size={18} />
+                              <span>Try again</span>
+                            </button>
+                          )}
+                          <button
+                            className="btn text-white"
+                            onClick={handleNext}
+                            style={{ background: primarySurface }}
+                          >
+                            <span>{stepIndex < practiceSteps.length - 1 ? 'Next' : 'Finish'}</span>
                             <ChevronRight size={18} />
                           </button>
                         </div>
@@ -368,12 +411,8 @@ export function SupportScreen({
 
                     {phase === 'complete' && (
                       <div className="rounded-[1.2rem] border border-white/80 bg-white/82 px-4 py-4">
-                        <p className="text-sm font-semibold text-slate-800">
-                          You finished {completedCount} of {practiceSteps.length} practice steps.
-                        </p>
-                        <p className="mt-2 text-sm text-slate-600">
-                          You can retry the conversation or go home to choose a new topic.
-                        </p>
+                        <p className="text-sm font-semibold text-slate-800">Done</p>
+                        <p className="mt-2 text-sm text-slate-600">{completedCount} / {practiceSteps.length}</p>
                       </div>
                     )}
                   </div>

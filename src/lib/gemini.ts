@@ -52,22 +52,24 @@ export interface AgentPrompt {
 }
 
 export async function generateAgentPrompt(scenario: Scenario): Promise<AgentPrompt> {
-  const prompt = `You are helping configure a voice AI for an English practice app used by newcomer mothers.
+  const prompt = `You are configuring a voice AI for an English practice app for newcomer mothers.
 
 Scenario: "${scenario.title}"
-The AI plays the role of: ${scenario.aiRole}
-The learner's goal: ${scenario.goal}
-Key vocabulary the learner should practice: ${scenario.targetVocab.join(', ')}
-Number of exchanges: ${scenario.maxTurns}
+Role: ${scenario.aiRole}
+Learner's goal: ${scenario.goal}
+Key words to practice: ${scenario.targetVocab.slice(0, 5).join(', ')}
+Total exchanges: ${scenario.maxTurns}
 
-Write a SHORT system prompt (under 120 words) for this AI character. It must:
-1. Define the role simply (who they are, where they work)
-2. Instruct the AI to use plain, everyday English only — no jargon
-3. Ask only ONE question at a time
-4. Naturally guide the conversation so the learner uses these words: ${scenario.targetVocab.slice(0, 5).join(', ')}
-5. After about ${scenario.maxTurns} exchanges, wrap up warmly and say goodbye
+Write a system prompt (under 150 words) that:
+1. Tells the AI who it is and where it works (keep it simple and specific)
+2. Says to ALWAYS wait for the user to finish speaking before responding
+3. Says to use short, simple sentences — no jargon
+4. Says to ask only ONE question at a time
+5. Says to naturally work these words into the conversation: ${scenario.targetVocab.slice(0, 4).join(', ')}
+6. Says to ONLY say goodbye and end after the user has spoken at least ${scenario.maxTurns} times
+7. Says to be warm, patient, and encouraging if the English is imperfect
 
-Also write a natural, friendly opening line (1 sentence) for the ${scenario.aiRole}.
+Also write a natural opening line (1 sentence) as the ${scenario.aiRole}.
 
 Return ONLY valid JSON, no markdown:
 {

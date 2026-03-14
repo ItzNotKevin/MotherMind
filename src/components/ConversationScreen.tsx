@@ -39,7 +39,10 @@ export function ConversationScreen({
   const sessionRef = useRef<ConversationSession | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const userTurnCountRef = useRef(0);
-  const endingRef = useRef(false); // guard against double-end
+  const endingRef = useRef(false);
+  // Set true only once the session is confirmed connected.
+  // Prevents React StrictMode's cleanup-unmount from triggering analysis.
+  const liveRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Keep ref in sync for use inside callbacks
@@ -61,17 +64,12 @@ export function ConversationScreen({
     const userMsgs = transcript.filter((m) => m.role === 'user');
     const aiMsgs = transcript.filter((m) => m.role === 'ai');
 
-    // Detect struggles for every user turn, all in parallel
     const strugglePromises = userMsgs.map((userMsg, i) => {
       const aiQuestion = aiMsgs[i]?.text ?? scenario.openingLine;
       return detectStruggle(scenario, aiQuestion, userMsg.text, i + 1);
     });
 
-    const [struggles, ...rest] = await Promise.all([
-      Promise.all(strugglePromises),
-    ]);
-    void rest;
-
+    const struggles = await Promise.all(strugglePromises);
     const feedback = await generateSupportFeedback(scenario, transcript, struggles);
     onComplete(transcript, feedback, struggles);
   }, [scenario, onComplete]);
@@ -83,7 +81,7 @@ export function ConversationScreen({
     try {
       await sessionRef.current?.endSession();
     } catch {
-      // session may already be closed — proceed to analysis
+      // session already closed — run analysis directly
       await runAnalysis();
     }
   }, [runAnalysis]);
@@ -91,9 +89,7 @@ export function ConversationScreen({
   // ── Start ElevenLabs session ────────────────────────────────────────────────
   useEffect(() => {
     if (!AGENT_ID) {
-      setErrorMsg(
-        'VITE_ELEVENLABS_AGENT_ID is not set. Create an agent at elevenlabs.io/app/conversational-ai and add it to .env.local',
-      );
+      setErrorMsg('VITE_ELEVENLABS_AGENT_ID is not set. Add it to .env.local');
       setPhase('error');
       return;
     }
@@ -102,26 +98,20 @@ export function ConversationScreen({
 
     async function init() {
       try {
-        // 1. Generate system prompt via Gemini
         const agentPrompt = await generateAgentPrompt(scenario);
         if (cancelled) return;
         setPhase('connecting');
 
-        // 2. Start WebRTC session
         const session = await startConversationSession({
           agentId: AGENT_ID!,
           systemPrompt: agentPrompt.systemPrompt,
           firstMessage: agentPrompt.firstMessage,
           voiceId: SARAH_VOICE_ID,
           onMessage: ({ role, text }) => {
-            const msg: Message = { role, text };
-            setMessages((prev) => [...prev, msg]);
-
+            setMessages((prev) => [...prev, { role, text }]);
             if (role === 'user') {
               userTurnCountRef.current += 1;
-              // Auto-end after maxTurns user messages
               if (userTurnCountRef.current >= scenario.maxTurns) {
-                // Small delay so AI can finish its final response
                 setTimeout(() => void endConversation(), 2500);
               }
             }
@@ -129,9 +119,17 @@ export function ConversationScreen({
           onModeChange: (m) => setMode(m),
           onStatusChange: (s) => {
             setStatus(s);
-            if (s === 'connected') setPhase('active');
+            if (s === 'connected') {
+              liveRef.current = true;
+              setPhase('active');
+            }
           },
-          onDisconnect: () => void runAnalysis(),
+          // Only run analysis on disconnect if the session was genuinely live.
+          // This prevents React StrictMode's cleanup unmount → endSession → onDisconnect
+          // from firing analysis before the user has said anything.
+          onDisconnect: () => {
+            if (liveRef.current) void runAnalysis();
+          },
           onError: (err) => {
             setErrorMsg(err);
             setPhase('error');
@@ -139,6 +137,8 @@ export function ConversationScreen({
         });
 
         if (cancelled) {
+          // StrictMode cleanup: kill session silently, do NOT run analysis
+          liveRef.current = false;
           await session.endSession();
           return;
         }
@@ -155,6 +155,7 @@ export function ConversationScreen({
     void init();
     return () => {
       cancelled = true;
+      liveRef.current = false; // prevent onDisconnect from triggering analysis
       sessionRef.current?.endSession().catch(() => {});
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps

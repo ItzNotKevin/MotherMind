@@ -5,6 +5,7 @@ interface UseSpeechRecognitionResult {
   transcript: string;
   transcriptRef: MutableRefObject<string>;
   isSupported: boolean;
+  error: string;
   startListening: () => void;
   stopListening: () => void;
   resetTranscript: () => void;
@@ -13,6 +14,7 @@ interface UseSpeechRecognitionResult {
 export function useSpeechRecognition(): UseSpeechRecognitionResult {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [error, setError] = useState('');
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const shouldKeepListening = useRef(false);
   const accumulatedTranscript = useRef('');
@@ -22,9 +24,22 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
     typeof window !== 'undefined' &&
     !!(window.SpeechRecognition ?? window.webkitSpeechRecognition);
 
-  const startRecognition = useCallback(() => {
+  const startRecognition = useCallback(async () => {
     const SpeechRecognitionAPI = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-    if (!SpeechRecognitionAPI) return;
+    if (!SpeechRecognitionAPI) {
+      setError('Speech recognition is not available in this browser.');
+      return;
+    }
+
+    setError('');
+
+    try {
+      await navigator.mediaDevices?.getUserMedia?.({ audio: true });
+    } catch {
+      setError('Microphone permission is blocked. Please allow microphone access and try again.');
+      setIsListening(false);
+      return;
+    }
 
     const recognition = new SpeechRecognitionAPI();
     recognition.continuous = true;
@@ -32,7 +47,10 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
     recognition.lang = 'en-US';
     recognition.maxAlternatives = 1;
 
-    recognition.onstart = () => setIsListening(true);
+    recognition.onstart = () => {
+      setError('');
+      setIsListening(true);
+    };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = '';
@@ -68,8 +86,18 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
     };
 
     recognition.onerror = (event: Event) => {
-      const errorEvent = event as ErrorEvent;
-      const err = errorEvent.message ?? '';
+      const speechEvent = event as Event & { error?: string; message?: string };
+      const err = speechEvent.error ?? speechEvent.message ?? '';
+
+      if (err === 'not-allowed' || err === 'service-not-allowed') {
+        setError('Microphone permission is blocked. Please allow microphone access and try again.');
+      } else if (err === 'no-speech') {
+        setError('We did not hear anything. Try speaking a little closer to the microphone.');
+      } else if (err === 'audio-capture') {
+        setError('No microphone was found. Check your device microphone and browser settings.');
+      } else if (err) {
+        setError(`Microphone error: ${err}`);
+      }
 
       if (shouldKeepListening.current && err !== 'not-allowed') {
         try {
@@ -98,7 +126,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
     transcriptRef.current = '';
     setTranscript('');
     shouldKeepListening.current = true;
-    startRecognition();
+    void startRecognition();
   }, [isSupported, startRecognition]);
 
   const stopListening = useCallback(() => {
@@ -114,7 +142,8 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
     accumulatedTranscript.current = '';
     transcriptRef.current = '';
     setTranscript('');
+    setError('');
   }, []);
 
-  return { isListening, transcript, transcriptRef, isSupported, startListening, stopListening, resetTranscript };
+  return { isListening, transcript, transcriptRef, isSupported, error, startListening, stopListening, resetTranscript };
 }

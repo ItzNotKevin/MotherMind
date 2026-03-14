@@ -1,38 +1,175 @@
-import { useState } from 'react';
-import { Volume2, RotateCcw, Home, Mic } from 'lucide-react';
-import type { Scenario, SupportFeedback } from '../types';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import {
+  CheckCircle2,
+  ChevronRight,
+  Home,
+  Loader2,
+  Mic,
+  MicOff,
+  RotateCcw,
+  Turtle,
+  Volume2,
+} from 'lucide-react';
+import type { PronunciationFeedback } from '../lib/gemini';
+import { getPronunciationFeedback } from '../lib/gemini';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import type { Scenario, Struggle, SupportFeedback } from '../types';
 import { ROHINGYA_UI } from '../lib/rohingya';
 
 interface SupportScreenProps {
   scenario: Scenario;
   feedback: SupportFeedback;
+  struggles: Struggle[];
   categoryColor: string;
   onRetryScenario: () => void;
   onGoHome: () => void;
   onStartLesson?: () => void;
 }
 
+type PracticePhase = 'ready' | 'record' | 'analyzing' | 'result' | 'complete';
+
+interface PracticeStep {
+  id: string;
+  label: string;
+  text: string;
+}
+
+const SCORE_STYLES = {
+  great: { color: '#16a34a', emoji: '🌟' },
+  good: { color: '#854d0e', emoji: '👍' },
+  try_again: { color: '#dc2626', emoji: '💪' },
+} as const;
+
 export function SupportScreen({
   scenario,
   feedback,
+  struggles,
   categoryColor: _categoryColor,
   onRetryScenario,
   onGoHome,
-  onStartLesson,
+  onStartLesson: _onStartLesson,
 }: SupportScreenProps) {
   const warmSurface = 'linear-gradient(160deg, rgba(255, 252, 247, 0.96) 0%, rgba(243, 236, 227, 0.92) 100%)';
   const primarySurface = 'linear-gradient(135deg, #33424d, #5a6772)';
-  const { speak, speakSlow } = useTextToSpeech();
-  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const { speak, speakSlow, isSpeaking } = useTextToSpeech();
+  const {
+    isListening,
+    transcript,
+    transcriptRef,
+    isSupported,
+    error: speechError,
+    startListening,
+    stopListening,
+    resetTranscript,
+  } = useSpeechRecognition();
 
-  const handleSpeak = async (text: string, id: string, slow = false) => {
-    setSpeakingId(id);
-    try {
-      await (slow ? speakSlow(text) : speak(text));
-    } finally {
-      setSpeakingId(null);
+  const struggleTerms = useMemo(
+    () =>
+      [...new Set(
+        struggles
+          .flatMap((struggle) => struggle.missingWords)
+          .map((term) => term.trim())
+          .filter(Boolean),
+      )],
+    [struggles],
+  );
+
+  const practiceSteps = useMemo<PracticeStep[]>(() => {
+    const focusSteps = struggleTerms.slice(0, 2).map((term, index) => ({
+      id: `focus-${index}`,
+      label: term.includes(' ') ? 'Focus phrase' : 'Focus word',
+      text: term,
+    }));
+
+    const fallbackSteps: PracticeStep[] = [
+      { id: 'word', label: 'Word', text: feedback.practice_word },
+      { id: 'phrase', label: 'Phrase', text: feedback.practice_phrase },
+      { id: 'sentence', label: 'Full sentence', text: feedback.practice_sentence },
+    ];
+
+    return [...focusSteps, ...fallbackSteps]
+      .filter((step, index, steps) => steps.findIndex((candidate) => candidate.text === step.text) === index)
+      .slice(0, 3);
+  }, [feedback.practice_phrase, feedback.practice_sentence, feedback.practice_word, struggleTerms]);
+
+  const [stepIndex, setStepIndex] = useState(0);
+  const [phase, setPhase] = useState<PracticePhase>('ready');
+  const [spokenText, setSpokenText] = useState('');
+  const [feedbackResult, setFeedbackResult] = useState<PronunciationFeedback | null>(null);
+  const [completedCount, setCompletedCount] = useState(0);
+
+  const currentStep = practiceSteps[stepIndex];
+  const stepProgress = practiceSteps.length > 0 ? ((stepIndex + 1) / practiceSteps.length) * 100 : 0;
+  const scoreStyle = feedbackResult ? SCORE_STYLES[feedbackResult.score] : null;
+
+  useEffect(() => {
+    if (phase !== 'record' || isListening) return;
+
+    const spoken = transcriptRef.current.trim();
+    if (!spoken || !currentStep) {
+      setPhase('ready');
+      return;
     }
+
+    setSpokenText(spoken);
+    setPhase('analyzing');
+    resetTranscript();
+
+    getPronunciationFeedback(currentStep.text, spoken)
+      .then((result) => {
+        setFeedbackResult(result);
+        if (result.score !== 'try_again') {
+          setCompletedCount((count) => Math.max(count, stepIndex + 1));
+        }
+        setPhase('result');
+      })
+      .catch(() => {
+        setFeedbackResult({
+          score: 'good',
+          message: 'Good try! Keep practicing.',
+          word_tips: 'Listen again and try once more.',
+        });
+        setPhase('result');
+      });
+  }, [currentStep, isListening, phase, resetTranscript, stepIndex, transcriptRef]);
+
+  const handleListen = async (slow = false) => {
+    if (!currentStep) return;
+    await (slow ? speakSlow(currentStep.text) : speak(currentStep.text));
+  };
+
+  const handleStartRecording = () => {
+    setFeedbackResult(null);
+    setSpokenText('');
+    resetTranscript();
+    setPhase('record');
+    startListening();
+  };
+
+  const handleStopRecording = () => {
+    stopListening();
+  };
+
+  const handleTryAgain = () => {
+    setFeedbackResult(null);
+    setSpokenText('');
+    resetTranscript();
+    setPhase('ready');
+  };
+
+  const handleNext = () => {
+    setFeedbackResult(null);
+    setSpokenText('');
+    resetTranscript();
+
+    if (stepIndex < practiceSteps.length - 1) {
+      setStepIndex((index) => index + 1);
+      setPhase('ready');
+      return;
+    }
+
+    setPhase('complete');
   };
 
   return (
@@ -85,58 +222,166 @@ export function SupportScreen({
             </div>
 
             <div className="mt-6 grid gap-4 text-left">
-              <SupportCard title="Say it better" emoji="💬">
-                <p>{feedback.say_it_better}</p>
-                <AudioRow
-                  text={feedback.say_it_better}
-                  id="say"
-                  speakingId={speakingId}
-                  onSpeak={handleSpeak}
-                />
-              </SupportCard>
+              {struggleTerms.length > 0 && (
+                <SupportCard title="Words to work on" emoji="🧩">
+                  <div className="flex flex-wrap gap-2">
+                    {struggleTerms.slice(0, 6).map((term) => (
+                      <span
+                        key={term}
+                        className="rounded-full px-3 py-2 text-sm font-semibold"
+                        style={{
+                          background: 'rgba(180, 123, 103, 0.12)',
+                          color: '#b47b67',
+                        }}
+                      >
+                        {term}
+                      </span>
+                    ))}
+                  </div>
+                </SupportCard>
+              )}
 
-              <SupportCard title="Understand it better" emoji="💡">
-                <p>{feedback.understand_it_better}</p>
-              </SupportCard>
+              <SupportCard title="Say it step by step" emoji="🎯">
+                {practiceSteps.length === 0 ? (
+                  <p>No practice words available yet.</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div
+                      className="h-2 overflow-hidden rounded-full bg-[rgba(180,123,103,0.12)]"
+                      aria-hidden="true"
+                    >
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${stepProgress}%`,
+                          background: 'linear-gradient(90deg, #b47b67, #d8b79a)',
+                        }}
+                      />
+                    </div>
 
-              <SupportCard title="Practice these" emoji="🎯">
-                <div className="space-y-3">
-                  <PracticeItem
-                    label="Word"
-                    text={feedback.practice_word}
-                    id="word"
-                    speakingId={speakingId}
-                    onSpeak={handleSpeak}
-                  />
-                  <PracticeItem
-                    label="Phrase"
-                    text={feedback.practice_phrase}
-                    id="phrase"
-                    speakingId={speakingId}
-                    onSpeak={handleSpeak}
-                  />
-                  <PracticeItem
-                    label="Full sentence"
-                    text={feedback.practice_sentence}
-                    id="sentence"
-                    speakingId={speakingId}
-                    onSpeak={handleSpeak}
-                  />
-                </div>
+                    <div className="rounded-[1.2rem] border border-white/80 bg-white/82 p-4">
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Step {Math.min(stepIndex + 1, practiceSteps.length)} of {practiceSteps.length}
+                      </p>
+                      <p className="mt-1 text-sm font-medium text-slate-500">{currentStep?.label}</p>
+                      <p className="mt-2 text-xl font-semibold leading-snug text-slate-900">{currentStep?.text}</p>
+                      <p className="mt-2 text-sm text-slate-500">
+                        {phase === 'complete'
+                          ? 'You finished all practice steps.'
+                          : 'Listen, then tap the mic and say this out loud.'}
+                      </p>
+                    </div>
+
+                    {speechError && (
+                      <div className="rounded-[1.2rem] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {speechError}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => void handleListen(false)}
+                        disabled={!currentStep || isSpeaking || isListening || phase === 'analyzing' || phase === 'complete'}
+                      >
+                        <Volume2 size={18} />
+                        <span>Hear it</span>
+                      </button>
+
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => void handleListen(true)}
+                        disabled={!currentStep || isSpeaking || isListening || phase === 'analyzing' || phase === 'complete'}
+                      >
+                        <Turtle size={18} />
+                        <span>Slow</span>
+                      </button>
+
+                      <button
+                        className="btn text-white"
+                        onClick={isListening ? handleStopRecording : handleStartRecording}
+                        disabled={!isSupported || isSpeaking || phase === 'analyzing' || phase === 'complete'}
+                        style={
+                          isListening
+                            ? ({ background: 'linear-gradient(135deg, #d46b4d, #b9472d)' } as CSSProperties)
+                            : ({ background: primarySurface } as CSSProperties)
+                        }
+                      >
+                        {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+                        <span>{isListening ? 'Stop mic' : 'Try saying it'}</span>
+                      </button>
+                    </div>
+
+                    <div className="rounded-[1.2rem] border border-white/80 bg-white/82 px-4 py-4">
+                      <p className="text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Mic status
+                      </p>
+                      <p className="mt-1 text-sm text-slate-700">
+                        {!isSupported
+                          ? 'This browser does not support speech recognition.'
+                          : isListening
+                          ? 'Listening now. Tap "Stop mic" when you finish speaking.'
+                          : phase === 'analyzing'
+                          ? 'Checking your pronunciation now.'
+                          : 'Tap "Try saying it" to start.'}
+                      </p>
+                      {(transcript || spokenText) && (
+                        <>
+                          <p className="mt-3 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                            You said
+                          </p>
+                          <p className="mt-1 text-sm text-slate-700">{transcript || spokenText}</p>
+                        </>
+                      )}
+                    </div>
+
+                    {phase === 'analyzing' && (
+                      <div className="rounded-[1.2rem] border border-white/80 bg-white/82 px-4 py-4">
+                        <div className="flex items-center gap-2">
+                          <Loader2 size={18} className="animate-spin" style={{ color: '#b47b67' }} />
+                          <p className="text-sm font-semibold text-slate-800">Checking your pronunciation</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {phase === 'result' && feedbackResult && scoreStyle && (
+                      <div className="rounded-[1.2rem] border border-white/80 bg-white/82 px-4 py-4">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 size={18} style={{ color: scoreStyle.color }} />
+                          <p className="text-sm font-semibold" style={{ color: scoreStyle.color }}>
+                            {scoreStyle.emoji} {feedbackResult.message}
+                          </p>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-700">{feedbackResult.word_tips}</p>
+                        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                          <button className="btn btn-secondary" onClick={handleTryAgain}>
+                            <RotateCcw size={18} />
+                            <span>Try again</span>
+                          </button>
+                          <button className="btn text-white" onClick={handleNext} style={{ background: primarySurface }}>
+                            <span>{stepIndex < practiceSteps.length - 1 ? 'Next step' : 'Finish practice'}</span>
+                            <ChevronRight size={18} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {phase === 'complete' && (
+                      <div className="rounded-[1.2rem] border border-white/80 bg-white/82 px-4 py-4">
+                        <p className="text-sm font-semibold text-slate-800">
+                          You finished {completedCount} of {practiceSteps.length} practice steps.
+                        </p>
+                        <p className="mt-2 text-sm text-slate-600">
+                          You can retry the conversation or go home to choose a new topic.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </SupportCard>
             </div>
 
             <div className="complete-actions mt-8">
-              {onStartLesson && (
-                <button className="btn text-white" onClick={onStartLesson} style={{ background: primarySurface }}>
-                  <Mic size={18} />
-                  <span className="flex flex-col items-start leading-tight">
-                    <span>Practice pronunciation</span>
-                    <span className="text-[0.72rem] font-medium opacity-80">{ROHINGYA_UI.startPractice}</span>
-                  </span>
-                </button>
-              )}
-
               <button className="btn text-white" onClick={onRetryScenario} style={{ background: primarySurface }}>
                 <RotateCcw size={18} />
                 <span className="flex flex-col items-start leading-tight">
@@ -160,8 +405,6 @@ export function SupportScreen({
   );
 }
 
-// ─── Sub-components ────────────────────────────────────────────────────────────
-
 function SupportCard({
   title,
   emoji,
@@ -173,91 +416,11 @@ function SupportCard({
 }) {
   return (
     <div className="support-card">
-      <div className="flex items-center gap-2 mb-3">
+      <div className="mb-3 flex items-center gap-2">
         <span className="text-xl leading-none">{emoji}</span>
         <h2>{title}</h2>
       </div>
       {children}
-    </div>
-  );
-}
-
-function AudioRow({
-  text,
-  id,
-  speakingId,
-  onSpeak,
-}: {
-  text: string;
-  id: string;
-  speakingId: string | null;
-  onSpeak: (text: string, id: string, slow?: boolean) => void;
-}) {
-  const slowId = `${id}-slow`;
-  const busy = speakingId !== null && speakingId !== id && speakingId !== slowId;
-
-  return (
-    <div className="mt-3 flex gap-2">
-      <button
-        onClick={() => onSpeak(text, id)}
-        disabled={busy}
-        className="btn btn-secondary"
-        style={{ color: '#b47b67', borderColor: 'rgba(180, 123, 103, 0.16)', background: 'rgba(255,251,247,0.88)' }}
-      >
-        <Volume2 size={14} />
-        Listen
-      </button>
-      <button
-        onClick={() => onSpeak(text, slowId, true)}
-        disabled={busy}
-        className="btn btn-secondary"
-      >
-        🐢 Slow
-      </button>
-    </div>
-  );
-}
-
-function PracticeItem({
-  label,
-  text,
-  id,
-  speakingId,
-  onSpeak,
-}: {
-  label: string;
-  text: string;
-  id: string;
-  speakingId: string | null;
-  onSpeak: (text: string, id: string, slow?: boolean) => void;
-}) {
-  return (
-    <div className="rounded-[1.2rem] border border-white/80 bg-white/82 p-3 flex items-start justify-between gap-3">
-      <div className="flex-1 min-w-0">
-        <span className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold block">
-          {label}
-        </span>
-        <p className="text-slate-800 font-semibold mt-0.5 leading-snug">{text}</p>
-      </div>
-      <div className="flex flex-col gap-1 flex-shrink-0">
-        <button
-          onClick={() => onSpeak(text, id)}
-          disabled={speakingId !== null && speakingId !== id}
-          className="p-2 rounded-lg disabled:opacity-30 transition-colors active:scale-95"
-          style={{ color: '#b47b67' }}
-          aria-label="Listen"
-        >
-          <Volume2 size={18} />
-        </button>
-        <button
-          onClick={() => onSpeak(text, `${id}-slow`, true)}
-          disabled={speakingId !== null && speakingId !== `${id}-slow`}
-          className="text-[10px] text-gray-400 font-medium px-1 disabled:opacity-30"
-          aria-label="Listen slowly"
-        >
-          🐢
-        </button>
-      </div>
     </div>
   );
 }

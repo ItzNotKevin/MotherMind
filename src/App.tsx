@@ -36,6 +36,30 @@ const TEST_ITEMS: PronunciationItem[] = [
   { label: 'Full sentence', text: 'My child has a fever and will not be coming to school today.' },
 ];
 
+function getPracticeItems(feedback: SupportFeedback, struggles: Struggle[]): PronunciationItem[] {
+  const struggleTerms = [...new Set(
+    struggles
+      .flatMap((struggle) => struggle.missingWords)
+      .map((term) => term.trim())
+      .filter(Boolean),
+  )];
+
+  const fallbackItems = [
+    { label: 'Word', text: feedback.practice_word },
+    { label: 'Phrase', text: feedback.practice_phrase },
+    { label: 'Full sentence', text: feedback.practice_sentence },
+  ];
+
+  const struggleItems = struggleTerms.map((term) => ({
+    label: term.includes(' ') ? 'Focus phrase' : 'Focus word',
+    text: term,
+  }));
+
+  return [...struggleItems, ...fallbackItems]
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.text === item.text) === index)
+    .slice(0, 3);
+}
+
 const CATEGORY_ICONS: Record<CategoryId, LucideIcon> = {
   healthcare: Stethoscope,
   school: GraduationCap,
@@ -123,13 +147,9 @@ export default function App() {
 
   const handleStartLesson = useCallback(() => {
     if (!supportFeedback) return;
-    setPronunciationItems([
-      { label: 'Word', text: supportFeedback.practice_word },
-      { label: 'Phrase', text: supportFeedback.practice_phrase },
-      { label: 'Full sentence', text: supportFeedback.practice_sentence },
-    ]);
+    setPronunciationItems(getPracticeItems(supportFeedback, struggles));
     setScreen('pronunciation');
-  }, [supportFeedback]);
+  }, [struggles, supportFeedback]);
 
   const category = selectedCategory ? getCategoryById(selectedCategory) : null;
   const scenarios = selectedCategory ? getScenariosForCategory(selectedCategory) : [];
@@ -232,11 +252,11 @@ export default function App() {
 
   if (screen === 'support') {
     if (!selectedScenario || !category || !supportFeedback) return null;
-    void struggles;
     return (
       <SupportScreen
         scenario={selectedScenario}
         feedback={supportFeedback}
+        struggles={struggles}
         categoryColor={category.color}
         onRetryScenario={handleRetryScenario}
         onGoHome={handleGoToTopics}

@@ -38,6 +38,8 @@ const SCORE_STYLES = {
 } as const;
 
 export function PronunciationScreen({ items, categoryColor, onDone }: PronunciationScreenProps) {
+  const warmSurface = 'linear-gradient(160deg, rgba(255, 252, 247, 0.96) 0%, rgba(243, 236, 227, 0.92) 100%)';
+  const primarySurface = 'linear-gradient(135deg, #33424d, #5a6772)';
   const [itemIndex, setItemIndex] = useState(0);
   const [phase, setPhase] = useState<Phase>('listen');
   const [feedback, setFeedback] = useState<PronunciationFeedback | null>(null);
@@ -118,14 +120,35 @@ export function PronunciationScreen({ items, categoryColor, onDone }: Pronunciat
     <div className="app-shell">
       <div className="app-backdrop" aria-hidden="true" />
       <div className="app-container">
+        <header className="app-header">
+          <div className="brand-lockup">
+            <div className="brand-mark" aria-hidden="true" />
+            <div>
+              <p className="brand-kicker">Voice practice for newcomer moms</p>
+              <h1>MotherMind</h1>
+            </div>
+          </div>
+
+          <button className="btn btn-secondary btn-icon" onClick={onDone} title="Return to topics">
+            <Home size={18} />
+            <span className="flex flex-col items-start leading-tight">
+              <span>Home</span>
+              <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.home}</span>
+            </span>
+          </button>
+        </header>
         <main className="main-content">
-          <section className="practice-view animate-fade-in glass-panel" aria-label="Pronunciation practice">
+          <section
+            className="practice-view animate-fade-in glass-panel"
+            aria-label="Pronunciation practice"
+            style={{ background: warmSurface }}
+          >
             <div className="progress-bar" aria-hidden="true">
               <div
                 className="progress-fill"
                 style={{
                   width: `${progressPercent}%`,
-                  background: `linear-gradient(90deg, ${categoryColor}, ${categoryColor}cc)`,
+                  background: 'linear-gradient(90deg, #b47b67, #d8b79a)',
                 }}
               />
             </div>
@@ -134,8 +157,8 @@ export function PronunciationScreen({ items, categoryColor, onDone }: Pronunciat
               <span
                 className="category-tag"
                 style={{
-                  color: categoryColor,
-                  borderColor: `${categoryColor}45`,
+                  color: '#b47b67',
+                  borderColor: 'rgba(180, 123, 103, 0.24)',
                 }}
               >
                 Pronunciation · {currentItem.label} · {ROHINGYA_UI.categoryPrompt} {itemIndex + 1} {ROHINGYA_UI.of}{' '}
@@ -153,9 +176,10 @@ export function PronunciationScreen({ items, categoryColor, onDone }: Pronunciat
               <div className="actions-container">
                 <div className="flex w-full flex-col gap-3 sm:flex-row sm:justify-center">
                   <button
-                    className="btn btn-secondary action-btn"
+                    className="btn action-btn text-white"
                     onClick={() => speak(currentItem.text)}
                     disabled={isSpeaking || isListening || phase === 'analyzing'}
+                    style={{ background: primarySurface }}
                   >
                     <Play size={18} fill="currentColor" />
                     <span className="flex flex-col items-start leading-tight">
@@ -200,7 +224,7 @@ export function PronunciationScreen({ items, categoryColor, onDone }: Pronunciat
                           isListening
                             ? undefined
                             : ({
-                                background: `linear-gradient(135deg, ${categoryColor}, ${categoryColor}cc)`,
+                                background: 'linear-gradient(135deg, #b47b67, #d8b79a)',
                               } as CSSProperties)
                         }
                         aria-pressed={isListening}
@@ -243,7 +267,7 @@ export function PronunciationScreen({ items, categoryColor, onDone }: Pronunciat
               {phase === 'analyzing' && (
                 <div className="feedback-panel animate-fade-in">
                   <div className="feedback-header">
-                    <Loader2 size={20} className="animate-spin" style={{ color: categoryColor }} />
+                    <Loader2 size={20} className="animate-spin" style={{ color: '#b47b67' }} />
                     <h4>Checking your pronunciation</h4>
                   </div>
                   <p>We are listening for clarity and confidence.</p>
@@ -261,8 +285,8 @@ export function PronunciationScreen({ items, categoryColor, onDone }: Pronunciat
               {phase === 'result' && feedback && scoreStyle && (
                 <div className="feedback-panel animate-fade-in">
                   <div className="feedback-header">
-                    <CheckCircle2 size={20} style={{ color: scoreStyle.color }} />
-                    <h4 style={{ color: scoreStyle.color }}>
+                    <CheckCircle2 size={20} style={{ color: '#b47b67' }} />
+                    <h4 style={{ color: '#b47b67' }}>
                       {scoreStyle.emoji} {feedback.message}
                     </h4>
                   </div>
@@ -316,7 +340,7 @@ export function PronunciationScreen({ items, categoryColor, onDone }: Pronunciat
 function CompletionScreen({
   passed,
   total,
-  color,
+  color: _color,
   onDone,
 }: {
   passed: number;
@@ -328,13 +352,30 @@ function CompletionScreen({
     <div className="app-shell">
       <div className="app-backdrop" aria-hidden="true" />
       <div className="app-container">
+        <header className="app-header">
+          <div className="brand-lockup">
+            <div className="brand-mark" aria-hidden="true" />
+            <div>
+              <p className="brand-kicker">Voice practice for newcomer moms</p>
+              <h1>MotherMind</h1>
+            </div>
+          </div>
+
+          <button className="btn btn-secondary btn-icon" onClick={onDone} title="Return to topics">
+            <Home size={18} />
+            <span className="flex flex-col items-start leading-tight">
+              <span>Home</span>
+              <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.home}</span>
+            </span>
+          </button>
+        </header>
         <main className="main-content">
           <section className="complete-view animate-fade-in glass-panel">
             <div
               className="trophy-ring"
               style={{
-                background: `${color}18`,
-                border: `2px solid ${color}40`,
+                background: 'rgba(180, 123, 103, 0.12)',
+                border: '2px solid rgba(180, 123, 103, 0.2)',
               }}
             >
               <span className="text-5xl" aria-hidden="true">
@@ -344,7 +385,7 @@ function CompletionScreen({
 
             <h2 className="complete-title">You finished this lesson.</h2>
             <p className="complete-subtitle">
-              You passed <strong style={{ color }}>{passed}</strong> of <strong>{total}</strong> practice items.
+              You passed <strong style={{ color: '#b47b67' }}>{passed}</strong> of <strong>{total}</strong> practice items.
             </p>
 
             <div className="complete-actions">

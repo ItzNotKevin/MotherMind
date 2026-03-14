@@ -19,6 +19,14 @@ interface TopicSelectionScreenProps {
   onSelectCategory: (categoryId: TopicCategoryId) => void;
 }
 
+const TOPIC_CARD_THEMES: Record<TopicCategoryId, string> = {
+  healthcare: 'linear-gradient(160deg, #d46b4d 0%, #e89d7b 58%, #23313f 150%)',
+  school: 'linear-gradient(160deg, #3d8f87 0%, #68b8aa 58%, #23313f 150%)',
+  everyday: 'linear-gradient(160deg, #5874c9 0%, #89a0e0 58%, #23313f 150%)',
+  work: 'linear-gradient(160deg, #d89a52 0%, #e8bc86 58%, #23313f 150%)',
+  general: 'linear-gradient(160deg, #7d8896 0%, #aab3bf 58%, #23313f 150%)',
+};
+
 export function TopicSelectionScreen({
   categories,
   onBack,
@@ -26,7 +34,7 @@ export function TopicSelectionScreen({
 }: TopicSelectionScreenProps) {
   return (
     <section className="animate-fade-in flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={onBack}
@@ -38,11 +46,6 @@ export function TopicSelectionScreen({
             <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.back}</span>
           </span>
         </button>
-
-        <div className="rounded-full bg-white/85 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm">
-          <span className="block">Choose topic</span>
-          <span className="block text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.chooseTopic}</span>
-        </div>
       </div>
 
       <div
@@ -58,7 +61,7 @@ export function TopicSelectionScreen({
               Practice topics
             </p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
-              Tap one picture
+              Choose topic
             </h2>
           </div>
 
@@ -75,7 +78,7 @@ export function TopicSelectionScreen({
               onClick={() => onSelectCategory(category.id)}
               className="group relative flex min-h-[230px] flex-col justify-between overflow-hidden rounded-[2rem] p-5 text-left text-white shadow-sm transition-transform hover:-translate-y-1 active:scale-[0.99] sm:min-h-[250px] sm:p-6"
               style={{
-                background: `linear-gradient(160deg, ${category.color} 0%, ${category.color}dd 60%, #23313f 150%)`,
+                background: TOPIC_CARD_THEMES[category.id],
               }}
             >
               <div className="absolute right-4 top-4 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white/80">

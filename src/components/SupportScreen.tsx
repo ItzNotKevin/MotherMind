@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Volume2, RotateCcw, Home, Mic } from 'lucide-react';
 import type { Scenario, SupportFeedback } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import { ROHINGYA_UI } from '../lib/rohingya';
 
 interface SupportScreenProps {
   scenario: Scenario;
@@ -15,11 +16,13 @@ interface SupportScreenProps {
 export function SupportScreen({
   scenario,
   feedback,
-  categoryColor,
+  categoryColor: _categoryColor,
   onRetryScenario,
   onGoHome,
   onStartLesson,
 }: SupportScreenProps) {
+  const warmSurface = 'linear-gradient(160deg, rgba(255, 252, 247, 0.96) 0%, rgba(243, 236, 227, 0.92) 100%)';
+  const primarySurface = 'linear-gradient(135deg, #33424d, #5a6772)';
   const { speak, speakSlow } = useTextToSpeech();
   const [speakingId, setSpeakingId] = useState<string | null>(null);
 
@@ -37,125 +40,125 @@ export function SupportScreen({
   };
 
   return (
-    <div
-      className="min-h-screen"
-      style={{ background: 'linear-gradient(160deg, #f5f0ff 0%, #fff5fb 50%, #fffbf0 100%)' }}
-    >
-      {/* Header */}
-      <div className="px-6 pt-14 pb-6 text-center">
-        <div className="text-5xl mb-3">🌟</div>
-        <h1
-          className="text-2xl font-bold text-gray-900"
-          style={{ fontFamily: 'Outfit, system-ui, sans-serif' }}
-        >
-          Practice Support
-        </h1>
-
-        {/* Encouragement box */}
-        <div
-          className="mt-4 mx-auto max-w-xs px-4 py-3 rounded-2xl"
-          style={{ background: `${categoryColor}15`, border: `1.5px solid ${categoryColor}25` }}
-        >
-          <p className="text-base font-medium leading-snug" style={{ color: categoryColor }}>
-            {feedback.encouragement}
-          </p>
-        </div>
-
-        {/* Scenario label */}
-        <p className="mt-3 text-xs text-gray-400">
-          Practice:{' '}
-          <span className="font-medium text-gray-500">{scenario.title}</span>
-        </p>
-      </div>
-
-      <div className="px-5 space-y-4 pb-10">
-        {/* Say it better */}
-        <SupportCard title="Say it better" emoji="💬">
-          <p className="text-gray-700 text-base leading-relaxed">{feedback.say_it_better}</p>
-          <AudioRow
-            text={feedback.say_it_better}
-            id="say"
-            speakingId={speakingId}
-            color={categoryColor}
-            onSpeak={handleSpeak}
-          />
-        </SupportCard>
-
-        {/* Understand it better */}
-        <SupportCard title="Understand it better" emoji="💡">
-          <p className="text-gray-700 text-base leading-relaxed">
-            {feedback.understand_it_better}
-          </p>
-        </SupportCard>
-
-        {/* Practice */}
-        <SupportCard title="Practice these" emoji="🎯">
-          <div className="space-y-3">
-            <PracticeItem
-              label="Word"
-              text={feedback.practice_word}
-              id="word"
-              speakingId={speakingId}
-              color={categoryColor}
-              onSpeak={handleSpeak}
-            />
-            <PracticeItem
-              label="Phrase"
-              text={feedback.practice_phrase}
-              id="phrase"
-              speakingId={speakingId}
-              color={categoryColor}
-              onSpeak={handleSpeak}
-            />
-            <PracticeItem
-              label="Full sentence"
-              text={feedback.practice_sentence}
-              id="sentence"
-              speakingId={speakingId}
-              color={categoryColor}
-              onSpeak={handleSpeak}
-            />
+    <div className="app-shell">
+      <div className="app-backdrop" aria-hidden="true" />
+      <div className="app-container">
+        <header className="app-header">
+          <div className="brand-lockup">
+            <div className="brand-mark" aria-hidden="true" />
+            <div>
+              <p className="brand-kicker">Voice practice for newcomer moms</p>
+              <h1>MotherMind</h1>
+            </div>
           </div>
-        </SupportCard>
 
-        {/* Home language note */}
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm">
-          <p className="text-xs text-gray-400 text-center mb-1 uppercase tracking-wide font-medium">
-            🌐 In your language
-          </p>
-          <p className="text-gray-300 text-sm text-center italic">
-            (Home language support coming soon)
-          </p>
-        </div>
-
-        {/* Action buttons */}
-        <div className="space-y-3 pt-2">
-          {onStartLesson && (
-            <button
-              onClick={onStartLesson}
-              className="w-full py-4 rounded-2xl text-white font-semibold text-base flex items-center justify-center gap-2 shadow-md active:scale-[0.98] transition-transform"
-              style={{ background: 'linear-gradient(135deg, #7c3aed, #db2777)' }}
-            >
-              <Mic size={18} />
-              Practice Pronunciation
-            </button>
-          )}
-          <button
-            onClick={onRetryScenario}
-            className="w-full py-4 rounded-2xl text-white font-semibold text-base flex items-center justify-center gap-2 shadow-sm active:scale-[0.98] transition-transform"
-            style={{ background: categoryColor }}
-          >
-            <RotateCcw size={18} />
-            Try this again
-          </button>
-          <button
-            onClick={onGoHome}
-            className="w-full py-4 rounded-2xl bg-white text-gray-600 font-semibold text-base flex items-center justify-center gap-2 border border-gray-200 active:scale-[0.98] transition-transform shadow-sm"
-          >
+          <button className="btn btn-secondary btn-icon" onClick={onGoHome} title="Return home">
             <Home size={18} />
-            Choose another topic
+            <span className="flex flex-col items-start leading-tight">
+              <span>Home</span>
+              <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.home}</span>
+            </span>
           </button>
-        </div>
+        </header>
+        <main className="main-content">
+          <section className="complete-view animate-fade-in glass-panel" style={{ background: warmSurface }}>
+            <div
+              className="trophy-ring"
+              style={{
+                background: 'rgba(180, 123, 103, 0.12)',
+                border: '2px solid rgba(180, 123, 103, 0.2)',
+              }}
+            >
+              <span className="text-5xl" aria-hidden="true">
+                🌟
+              </span>
+            </div>
+
+            <h2 className="complete-title">Practice support</h2>
+            <p className="complete-subtitle">
+              Review your conversation in <strong style={{ color: '#b47b67' }}>{scenario.title}</strong>.
+            </p>
+
+            <div
+              className="mx-auto mt-5 max-w-xl rounded-[1.5rem] px-4 py-4"
+              style={{ background: 'rgba(255,251,247,0.88)', border: '1px solid rgba(180, 123, 103, 0.16)' }}
+            >
+              <p className="text-base font-medium leading-snug" style={{ color: '#b47b67' }}>
+                {feedback.encouragement}
+              </p>
+            </div>
+
+            <div className="mt-6 grid gap-4 text-left">
+              <SupportCard title="Say it better" emoji="💬">
+                <p>{feedback.say_it_better}</p>
+                <AudioRow
+                  text={feedback.say_it_better}
+                  id="say"
+                  speakingId={speakingId}
+                  onSpeak={handleSpeak}
+                />
+              </SupportCard>
+
+              <SupportCard title="Understand it better" emoji="💡">
+                <p>{feedback.understand_it_better}</p>
+              </SupportCard>
+
+              <SupportCard title="Practice these" emoji="🎯">
+                <div className="space-y-3">
+                  <PracticeItem
+                    label="Word"
+                    text={feedback.practice_word}
+                    id="word"
+                    speakingId={speakingId}
+                    onSpeak={handleSpeak}
+                  />
+                  <PracticeItem
+                    label="Phrase"
+                    text={feedback.practice_phrase}
+                    id="phrase"
+                    speakingId={speakingId}
+                    onSpeak={handleSpeak}
+                  />
+                  <PracticeItem
+                    label="Full sentence"
+                    text={feedback.practice_sentence}
+                    id="sentence"
+                    speakingId={speakingId}
+                    onSpeak={handleSpeak}
+                  />
+                </div>
+              </SupportCard>
+            </div>
+
+            <div className="complete-actions mt-8">
+              {onStartLesson && (
+                <button className="btn text-white" onClick={onStartLesson} style={{ background: primarySurface }}>
+                  <Mic size={18} />
+                  <span className="flex flex-col items-start leading-tight">
+                    <span>Practice pronunciation</span>
+                    <span className="text-[0.72rem] font-medium opacity-80">{ROHINGYA_UI.startPractice}</span>
+                  </span>
+                </button>
+              )}
+
+              <button className="btn text-white" onClick={onRetryScenario} style={{ background: primarySurface }}>
+                <RotateCcw size={18} />
+                <span className="flex flex-col items-start leading-tight">
+                  <span>Try this again</span>
+                  <span className="text-[0.72rem] font-medium opacity-80">{ROHINGYA_UI.practiceAgain}</span>
+                </span>
+              </button>
+
+              <button className="btn btn-secondary" onClick={onGoHome}>
+                <Home size={18} />
+                <span className="flex flex-col items-start leading-tight">
+                  <span>Choose another topic</span>
+                  <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.backHome}</span>
+                </span>
+              </button>
+            </div>
+          </section>
+        </main>
       </div>
     </div>
   );
@@ -173,15 +176,10 @@ function SupportCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+    <div className="support-card">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xl leading-none">{emoji}</span>
-        <h2
-          className="font-bold text-gray-900 text-base"
-          style={{ fontFamily: 'Outfit, system-ui, sans-serif' }}
-        >
-          {title}
-        </h2>
+        <h2>{title}</h2>
       </div>
       {children}
     </div>
@@ -192,13 +190,11 @@ function AudioRow({
   text,
   id,
   speakingId,
-  color,
   onSpeak,
 }: {
   text: string;
   id: string;
   speakingId: string | null;
-  color: string;
   onSpeak: (text: string, id: string, slow?: boolean) => void;
 }) {
   const slowId = `${id}-slow`;
@@ -209,8 +205,8 @@ function AudioRow({
       <button
         onClick={() => onSpeak(text, id)}
         disabled={busy}
-        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
-        style={{ background: `${color}15`, color }}
+        className="btn btn-secondary"
+        style={{ color: '#b47b67', borderColor: 'rgba(180, 123, 103, 0.16)', background: 'rgba(255,251,247,0.88)' }}
       >
         <Volume2 size={14} />
         Listen
@@ -218,7 +214,7 @@ function AudioRow({
       <button
         onClick={() => onSpeak(text, slowId, true)}
         disabled={busy}
-        className="flex items-center gap-1.5 px-3 py-2 bg-gray-50 text-gray-500 rounded-lg text-sm font-medium hover:bg-gray-100 disabled:opacity-40"
+        className="btn btn-secondary"
       >
         🐢 Slow
       </button>
@@ -231,30 +227,28 @@ function PracticeItem({
   text,
   id,
   speakingId,
-  color,
   onSpeak,
 }: {
   label: string;
   text: string;
   id: string;
   speakingId: string | null;
-  color: string;
   onSpeak: (text: string, id: string, slow?: boolean) => void;
 }) {
   return (
-    <div className="bg-gray-50 rounded-xl p-3 flex items-start justify-between gap-3">
+    <div className="rounded-[1.2rem] border border-white/80 bg-white/82 p-3 flex items-start justify-between gap-3">
       <div className="flex-1 min-w-0">
-        <span className="text-[10px] text-gray-400 uppercase tracking-widest font-semibold block">
+        <span className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold block">
           {label}
         </span>
-        <p className="text-gray-800 font-semibold mt-0.5 leading-snug">{text}</p>
+        <p className="text-slate-800 font-semibold mt-0.5 leading-snug">{text}</p>
       </div>
       <div className="flex flex-col gap-1 flex-shrink-0">
         <button
           onClick={() => onSpeak(text, id)}
           disabled={speakingId !== null && speakingId !== id}
           className="p-2 rounded-lg disabled:opacity-30 transition-colors active:scale-95"
-          style={{ color }}
+          style={{ color: '#b47b67' }}
           aria-label="Listen"
         >
           <Volume2 size={18} />

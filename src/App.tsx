@@ -2,6 +2,7 @@ import { useState, useCallback, type ReactNode } from 'react';
 import {
   Briefcase,
   GraduationCap,
+  Home,
   MessageCircleMore,
   ShoppingBag,
   Stethoscope,
@@ -115,10 +116,29 @@ export default function App() {
   const category = selectedCategory ? getCategoryById(selectedCategory) : null;
   const scenarios = selectedCategory ? getScenariosForCategory(selectedCategory) : [];
 
-  const marketingShell = (content: ReactNode) => (
+  const marketingShell = (content: ReactNode, showHomeButton = screen !== 'home') => (
     <div className="app-shell">
       <div className="app-backdrop" aria-hidden="true" />
       <div className="app-container">
+        <header className="app-header">
+          <div className="brand-lockup">
+            <div className="brand-mark" aria-hidden="true" />
+            <div>
+              <p className="brand-kicker">Voice practice for newcomer moms</p>
+              <h1>MotherMind</h1>
+            </div>
+          </div>
+
+          {showHomeButton && (
+            <button className="btn btn-secondary btn-icon" onClick={handleGoHome} title="Return home">
+              <Home size={18} />
+              <span className="flex flex-col items-start leading-tight">
+                <span>Home</span>
+                <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.home}</span>
+              </span>
+            </button>
+          )}
+        </header>
         <main className="main-content">{content}</main>
       </div>
     </div>
@@ -177,6 +197,7 @@ export default function App() {
         categoryColor={category.color}
         onComplete={handleConversationComplete}
         onBack={() => setScreen('scenario')}
+        onGoHome={handleGoToTopics}
       />
     );
   }

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { ArrowLeft, Loader2, Target } from 'lucide-react';
+import { ArrowLeft, Home, Loader2, PhoneOff, Play, Target, Turtle } from 'lucide-react';
 import type { Mode } from '@11labs/client';
 import type { Message, Scenario, Struggle, SupportFeedback } from '../types';
 import { detectStruggle, generateSupportFeedback } from '../lib/gemini';
 import { startConversationSession } from '../lib/elevenLabsConversation';
 import type { ConversationSession } from '../lib/elevenLabsConversation';
+import { ROHINGYA_UI } from '../lib/rohingya';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID as string | undefined;
 
@@ -13,20 +15,26 @@ interface ConversationScreenProps {
   categoryColor: string;
   onComplete: (messages: Message[], feedback: SupportFeedback, struggles: Struggle[]) => void;
   onBack: () => void;
+  onGoHome: () => void;
 }
 
-type Phase = 'connecting' | 'active' | 'analyzing' | 'error';
+type Phase = 'connecting' | 'active' | 'ending' | 'analyzing' | 'error';
 
 export function ConversationScreen({
   scenario,
-  categoryColor,
+  categoryColor: _categoryColor,
   onComplete,
   onBack,
+  onGoHome,
 }: ConversationScreenProps) {
+  const primarySurface = 'linear-gradient(135deg, #33424d, #5a6772)';
+  const warmSurface = 'linear-gradient(160deg, rgba(255, 252, 247, 0.96) 0%, rgba(243, 236, 227, 0.92) 100%)';
+  const softPanel = 'rgba(255, 251, 247, 0.88)';
   const [phase, setPhase] = useState<Phase>('connecting');
   const [mode, setMode] = useState<Mode>('listening');
   const [messages, setMessages] = useState<Message[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
+  const { speak, speakSlow, isSpeaking } = useTextToSpeech();
 
   const sessionRef = useRef<ConversationSession | null>(null);
   const messagesRef = useRef<Message[]>([]);
@@ -42,7 +50,6 @@ export function ConversationScreen({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ── Post-conversation Gemini analysis ─────────────────────────────────────
   const runAnalysis = useCallback(async () => {
     if (analysisRanRef.current) return;
     analysisRanRef.current = true;
@@ -63,7 +70,16 @@ export function ConversationScreen({
     onComplete(transcript, feedback, struggles);
   }, [scenario, onComplete]);
 
-  // ── Connect to ElevenLabs agent on mount ──────────────────────────────────
+  const endConversation = useCallback(async () => {
+    if (analysisRanRef.current) return;
+    setPhase('ending');
+    try {
+      await sessionRef.current?.endSession();
+    } catch {
+      await runAnalysis();
+    }
+  }, [runAnalysis]);
+
   useEffect(() => {
     if (!AGENT_ID) {
       setErrorMsg('VITE_ELEVENLABS_AGENT_ID is not set.');
@@ -85,19 +101,18 @@ export function ConversationScreen({
               messagesRef.current = updated;
               return updated;
             });
+
             if (role === 'user') {
               userTurnCountRef.current += 1;
             }
           },
-          onModeChange: (m) => setMode(m),
-          onStatusChange: (s) => {
-            if (s === 'connected') setPhase('active');
+          onModeChange: (nextMode) => setMode(nextMode),
+          onStatusChange: (status) => {
+            if (status === 'connected') {
+              setPhase('active');
+            }
           },
           onDisconnect: () => {
-            // Only run analysis if the user actually spoke.
-            // This naturally handles React StrictMode's cleanup-unmount
-            // (which fires before any user interaction) and any other
-            // premature disconnects.
             if (userTurnCountRef.current > 0) {
               void runAnalysis();
             } else if (!cancelled) {
@@ -130,136 +145,198 @@ export function ConversationScreen({
       cancelled = true;
       sessionRef.current?.endSession().catch(() => {});
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [runAnalysis, scenario.openingLine]);
 
   const userTurns = messages.filter((m) => m.role === 'user').length;
+  const isActive = phase === 'active';
+  const isBusy = phase === 'connecting' || phase === 'ending' || phase === 'analyzing';
+  const statusLabel =
+    phase === 'active' ? 'live' : phase === 'connecting' ? 'connecting' : phase === 'ending' ? 'ending' : phase;
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-
-      {/* Header */}
-      <div className="bg-white border-b border-gray-100 px-4 pt-12 pb-3 sticky top-0 z-10 shadow-sm">
-        <button
-          onClick={onBack}
-          disabled={phase === 'analyzing'}
-          className="flex items-center gap-1 text-gray-400 mb-3 -ml-1 px-1 py-1 rounded active:bg-gray-100 disabled:opacity-30"
-        >
-          <ArrowLeft size={16} />
-          <span className="text-sm">Exit</span>
-        </button>
-        <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0"
-            style={{ background: categoryColor }}
-          >
-            AI
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-gray-900 text-sm leading-tight truncate"
-              style={{ fontFamily: 'Outfit, system-ui, sans-serif' }}>
-              {scenario.title}
-            </p>
-            <p className="text-xs text-gray-400 leading-tight">
-              Speaking with {scenario.aiRole}
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`w-2 h-2 rounded-full transition-colors ${
-                phase === 'active' ? 'bg-green-400' : 'bg-gray-300'
-              }`}
-            />
-            <span className="text-xs text-gray-400 capitalize">
-              {phase === 'connecting' ? 'connecting' : phase === 'active' ? 'live' : phase}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Goal banner */}
-      <div
-        className="mx-4 mt-3 px-4 py-2.5 rounded-xl flex items-start gap-2"
-        style={{ background: `${categoryColor}12`, border: `1px solid ${categoryColor}25` }}
-      >
-        <Target size={14} className="mt-0.5 flex-shrink-0" style={{ color: categoryColor }} />
-        <p className="text-xs leading-relaxed font-medium" style={{ color: categoryColor }}>
-          {scenario.goal}
-        </p>
-      </div>
-
-      {/* Turn progress */}
-      {phase === 'active' && (
-        <div className="px-4 pt-2.5">
-          <div className="flex gap-1.5">
-            {Array.from({ length: scenario.maxTurns }).map((_, i) => (
-              <div
-                key={i}
-                className="flex-1 h-1.5 rounded-full transition-all duration-300"
-                style={{ background: i < userTurns ? categoryColor : '#e5e7eb' }}
-              />
-            ))}
-          </div>
-          <p className="text-xs text-gray-400 text-right mt-1">
-            {userTurns} / {scenario.maxTurns} turns
-          </p>
-        </div>
-      )}
-
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}
-          >
-            <div
-              className={`max-w-[82%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
-                msg.role === 'ai'
-                  ? 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm shadow-sm'
-                  : 'text-white rounded-tr-sm shadow-sm'
-              }`}
-              style={msg.role === 'user' ? { background: categoryColor } : undefined}
-            >
-              {msg.text}
+    <div className="app-shell">
+      <div className="app-backdrop" aria-hidden="true" />
+      <div className="app-container">
+        <header className="app-header">
+          <div className="brand-lockup">
+            <div className="brand-mark" aria-hidden="true" />
+            <div>
+              <p className="brand-kicker">Voice practice for newcomer moms</p>
+              <h1>MotherMind</h1>
             </div>
           </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
 
-      {/* Bottom panel */}
-      <div className="bg-white border-t border-gray-100 px-6 py-6 flex flex-col items-center gap-4">
+          <button className="btn btn-secondary btn-icon" onClick={onGoHome} title="Return home">
+            <Home size={18} />
+            <span className="flex flex-col items-start leading-tight">
+              <span>Home</span>
+              <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.home}</span>
+            </span>
+          </button>
+        </header>
+        <main className="main-content">
+          <section
+            className="practice-view animate-fade-in glass-panel"
+            aria-label="Conversation practice"
+            style={{ background: warmSurface }}
+          >
+            <div className="progress-bar" aria-hidden="true">
+              <div
+                className="progress-fill"
+                style={{
+                  width: `${Math.max(8, (userTurns / scenario.maxTurns) * 100)}%`,
+                  background: 'linear-gradient(90deg, #b47b67, #d8b79a)',
+                }}
+              />
+            </div>
 
-        {phase === 'error' && (
-          <div className="w-full bg-red-50 border border-red-100 text-red-600 text-sm px-4 py-3 rounded-xl text-center">
-            {errorMsg}
-          </div>
-        )}
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <button onClick={onBack} disabled={isBusy} className="btn btn-secondary">
+                <ArrowLeft size={18} />
+                <span>Back</span>
+              </button>
 
-        {phase === 'connecting' && (
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 size={28} className="animate-spin" style={{ color: categoryColor }} />
-            <p className="text-sm text-gray-500">Connecting...</p>
-          </div>
-        )}
+              <div className="flex items-center gap-2 rounded-full bg-white/75 px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm">
+                <span
+                  className={`h-2.5 w-2.5 rounded-full ${isActive ? 'bg-green-400' : 'bg-slate-300'}`}
+                />
+                <span className="capitalize">{statusLabel}</span>
+              </div>
+            </div>
 
-        {phase === 'analyzing' && (
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 size={28} className="animate-spin" style={{ color: categoryColor }} />
-            <p className="text-sm text-gray-500">Preparing your practice...</p>
-          </div>
-        )}
+            <div className="practice-intro mt-6">
+              <span
+                className="category-tag"
+                style={{
+                  color: '#b47b67',
+                  borderColor: 'rgba(180, 123, 103, 0.24)',
+                }}
+              >
+                {scenario.title} · {userTurns} / {scenario.maxTurns} turns
+              </span>
+              <p className="practice-support">Speak with the AI helper and answer in your own words.</p>
+            </div>
 
-        {phase === 'active' && (
-          <VoiceOrb mode={mode} color={categoryColor} />
-        )}
+            <div
+              className="mx-auto mb-6 flex max-w-2xl items-start gap-3 rounded-[1.4rem] px-4 py-4"
+              style={{ background: 'rgba(255,251,247,0.88)', border: '1px solid rgba(180, 123, 103, 0.16)' }}
+            >
+              <Target size={18} className="mt-0.5 flex-shrink-0" style={{ color: '#b47b67' }} />
+              <div>
+                <p className="text-[0.72rem] font-semibold uppercase tracking-[0.16em]" style={{ color: '#b47b67' }}>
+                  Goal
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-slate-700">{scenario.goal}</p>
+              </div>
+            </div>
+
+            <div className="mx-auto mb-6 flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:justify-center">
+              <button
+                className="btn action-btn text-white"
+                onClick={() => void speak(scenario.openingLine)}
+                disabled={isSpeaking || isBusy}
+                style={{ background: primarySurface, boxShadow: '0 18px 32px rgba(35, 49, 63, 0.16)' }}
+              >
+                <Play size={18} fill="currentColor" />
+                <span className="flex flex-col items-start leading-tight">
+                  <span>Hear prompt</span>
+                  <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.hearIt}</span>
+                </span>
+              </button>
+
+              <button
+                className="btn btn-secondary action-btn"
+                onClick={() => void speakSlow(scenario.openingLine)}
+                disabled={isSpeaking || isBusy}
+              >
+                <Turtle size={18} />
+                <span className="flex flex-col items-start leading-tight">
+                  <span>Repeat slowly</span>
+                  <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.repeatSlowly}</span>
+                </span>
+              </button>
+            </div>
+
+            <div
+              className="mx-auto flex w-full max-w-3xl flex-col gap-3 rounded-[1.8rem] border border-white/80 p-4 shadow-sm"
+              style={{ background: softPanel }}
+            >
+              <div className="flex items-center gap-3 border-b border-[rgba(35,49,63,0.08)] pb-3">
+                <div
+                  className="flex h-11 w-11 items-center justify-center rounded-full text-sm font-bold text-white"
+                  style={{ background: 'linear-gradient(135deg, #b47b67, #d8b79a)' }}
+                >
+                  AI
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-slate-900">{scenario.aiRole}</p>
+                  <p className="text-sm text-slate-500">{scenario.openingLine}</p>
+                </div>
+              </div>
+
+              <div className="max-h-[360px] overflow-y-auto space-y-3 px-1 py-2">
+                {messages.map((msg, i) => (
+                  <div
+                    key={i}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}
+                  >
+                    <div
+                      className={`max-w-[82%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm ${
+                        msg.role === 'ai'
+                          ? 'rounded-tl-sm border border-white/80 bg-white text-slate-800'
+                          : 'rounded-tr-sm text-white'
+                      }`}
+                      style={msg.role === 'user' ? { background: primarySurface } : undefined}
+                    >
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+
+                {!messages.length && (
+                  <div className="rounded-[1.3rem] border border-dashed border-[rgba(35,49,63,0.12)] bg-white/55 px-4 py-6 text-center text-sm text-slate-500">
+                    Your conversation will appear here.
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+
+            <div className="feedback-panel mt-8 max-w-none border-t-0 pt-0">
+              {phase === 'error' && (
+                <div className="rounded-[1.4rem] border border-red-100 bg-red-50 px-4 py-4 text-sm leading-relaxed text-red-600">
+                  {errorMsg}
+                </div>
+              )}
+
+              {(phase === 'connecting' || phase === 'ending' || phase === 'analyzing') && (
+                <div className="flex flex-col items-center gap-3 rounded-[1.4rem] border border-white/80 bg-white/78 px-5 py-6 text-center shadow-sm">
+                  <Loader2 size={28} className="animate-spin" style={{ color: '#b47b67' }} />
+                  <p className="text-sm font-medium text-slate-600">
+                    {phase === 'connecting' && 'Connecting...'}
+                    {phase === 'ending' && 'Finishing up...'}
+                    {phase === 'analyzing' && 'Preparing your practice...'}
+                  </p>
+                </div>
+              )}
+
+              {isActive && (
+                <div className="flex flex-col items-center gap-5 rounded-[1.6rem] border border-white/80 bg-white/78 px-5 py-6 shadow-sm">
+                  <VoiceOrb mode={mode} color="#b47b67" />
+                  <button onClick={() => void endConversation()} className="btn btn-secondary">
+                    <PhoneOff size={18} />
+                    <span>End conversation</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </section>
+        </main>
       </div>
     </div>
   );
 }
-
-// ── Voice orb ──────────────────────────────────────────────────────────────────
 
 function VoiceOrb({ mode, color }: { mode: Mode; color: string }) {
   const isSpeaking = mode === 'speaking';
@@ -274,9 +351,7 @@ function VoiceOrb({ mode, color }: { mode: Mode; color: string }) {
             style={{
               width: 80 + i * 22,
               height: 80 + i * 22,
-              background: `${color}${isSpeaking
-                ? Math.max(8, 18 - i * 5).toString(16).padStart(2, '0')
-                : '08'}`,
+              background: `${color}${isSpeaking ? Math.max(8, 18 - i * 5).toString(16).padStart(2, '0') : '08'}`,
               animation: isSpeaking
                 ? `ping ${0.8 + i * 0.2}s cubic-bezier(0,0,0.2,1) infinite`
                 : `pulse ${2 + i * 0.4}s ease-in-out infinite`,
@@ -284,11 +359,12 @@ function VoiceOrb({ mode, color }: { mode: Mode; color: string }) {
             }}
           />
         ))}
+
         <div
-          className="relative z-10 w-20 h-20 rounded-full flex items-center justify-center shadow-lg"
+          className="relative z-10 flex h-20 w-20 items-center justify-center rounded-full shadow-lg"
           style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}
         >
-          <div className="flex gap-1 items-center h-8">
+          <div className="flex h-8 items-center gap-1">
             {[1, 1.5, 1, 1.8, 1, 1.4, 1].map((h, i) => (
               <div
                 key={i}
@@ -305,7 +381,8 @@ function VoiceOrb({ mode, color }: { mode: Mode; color: string }) {
           </div>
         </div>
       </div>
-      <p className="text-sm font-medium text-gray-500">
+
+      <p className="text-sm font-medium text-slate-500">
         {isSpeaking ? 'AI is speaking...' : 'Listening — speak now'}
       </p>
     </div>

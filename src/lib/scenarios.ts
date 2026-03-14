@@ -25,6 +25,22 @@ export const CATEGORIES: Category[] = [
     lightColor: '#fef3c7',
     description: 'Shopping, directions, and daily tasks',
   },
+  {
+    id: 'work',
+    title: 'Work',
+    emoji: '💼',
+    color: '#5874c9',
+    lightColor: '#e7edff',
+    description: 'Interviews, schedules, and starting a new job',
+  },
+  {
+    id: 'general',
+    title: 'General Conversation',
+    emoji: '💬',
+    color: '#6b7280',
+    lightColor: '#f1f2f4',
+    description: 'Warm up with greetings, help, and simple everyday talk',
+  },
 ];
 
 export const SCENARIOS: Scenario[] = [
@@ -133,6 +149,78 @@ export const SCENARIOS: Scenario[] = [
       "Ask where they are trying to go and confirm the destination",
       "Give simple bus directions — which bus number, where to board, and where to get off",
       "Tell them how long it will take and wish them a good trip",
+    ],
+  },
+
+  // ── WORK ───────────────────────────────────────────────────────────────────
+  {
+    id: 'work-first-day',
+    categoryId: 'work',
+    title: 'Ask about your first day',
+    description: 'Talk to a supervisor about when to start and what to bring',
+    goal: 'Find out when your first shift starts and what you should bring with you',
+    aiRole: 'friendly shift supervisor at a grocery store',
+    openingLine:
+      "Hi! Welcome. I'm your supervisor, Daniel. I'm glad you're here. What would you like to ask before your first day?",
+    maxTurns: 3,
+    targetVocab: ['start', 'first day', 'shift', 'bring', 'uniform', 'time', 'work', 'tomorrow'],
+    followUpPrompts: [
+      'Ask when their first shift is and confirm the date and time',
+      'Explain what they should bring or wear on the first day',
+      'Offer encouragement and confirm where to meet when they arrive',
+    ],
+  },
+  {
+    id: 'work-repeat',
+    categoryId: 'work',
+    title: 'Ask someone to repeat',
+    description: 'Tell a coworker you are still learning English and ask them to speak slowly',
+    goal: 'Ask a coworker to repeat instructions slowly because you are still learning English',
+    aiRole: 'helpful coworker during a training shift',
+    openingLine:
+      "Hey! We need to stock these shelves first, then clean the cart area. Do you have any questions before we start?",
+    maxTurns: 3,
+    targetVocab: ['repeat', 'slowly', 'English', 'learning', 'understand', 'help', 'again'],
+    followUpPrompts: [
+      'Repeat the instructions in a slightly different way and ask what part was confusing',
+      'Speak more slowly and check if they understand the first task',
+      'Encourage them to ask again anytime they need help',
+    ],
+  },
+
+  // ── GENERAL CONVERSATION ───────────────────────────────────────────────────
+  {
+    id: 'general-greeting',
+    categoryId: 'general',
+    title: 'Introduce yourself',
+    description: 'Practice a simple greeting and short introduction',
+    goal: 'Say hello, share your name, and tell someone you are new here',
+    aiRole: 'friendly neighbour meeting you for the first time',
+    openingLine:
+      "Hi there! I don't think we've met before. My name is Sarah. What's your name?",
+    maxTurns: 3,
+    targetVocab: ['hello', 'my name is', 'new', 'from', 'nice to meet you', 'learning English'],
+    followUpPrompts: [
+      'Ask their name and where they are from',
+      'Ask if they are new to the neighbourhood and how they are settling in',
+      'Respond warmly and say it was nice meeting them',
+    ],
+  },
+  {
+    id: 'general-help',
+    categoryId: 'general',
+    title: 'Ask for simple help',
+    description: 'Practice asking someone for help politely',
+    goal: 'Ask someone for help because you do not understand something yet',
+    aiRole: 'kind volunteer at a community centre',
+    openingLine:
+      "Hello! Welcome to the community centre. Is there something I can help you with today?",
+    maxTurns: 3,
+    targetVocab: ['help', 'please', 'understand', 'again', 'slowly', 'thank you'],
+    followUpPrompts: [
+      'Ask what they need help with and encourage them to explain in simple words',
+      'Repeat the information slowly and ask if it makes more sense now',
+      'Offer one more chance for questions and reassure them that asking is okay',
     ],
   },
 ];

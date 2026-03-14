@@ -158,13 +158,13 @@ export default function App() {
 
   if (screen === 'scenario') {
     if (!category) return null;
-    return (
+    return marketingShell(
       <ScenarioScreen
         category={category}
         scenarios={scenarios}
         onSelectScenario={handleSelectScenario}
         onBack={handleGoToTopics}
-      />
+      />,
     );
   }
 

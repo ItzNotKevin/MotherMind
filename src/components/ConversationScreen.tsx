@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { ArrowLeft, Home, Loader2, PhoneOff, Play, Target, Turtle } from 'lucide-react';
+import { ArrowLeft, Home, Loader2, PhoneOff, Target } from 'lucide-react';
 import type { Mode } from '@11labs/client';
 import type { Message, Scenario, Struggle, SupportFeedback } from '../types';
 import { checkStepCompleted, detectStruggle, generateSupportFeedback } from '../lib/gemini';
 import { startConversationSession } from '../lib/elevenLabsConversation';
 import type { ConversationSession } from '../lib/elevenLabsConversation';
 import { ROHINGYA_UI } from '../lib/rohingya';
-import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID as string | undefined;
 
@@ -39,7 +38,6 @@ export function ConversationScreen({
   const [stepsPassed, setStepsPassed] = useState<boolean[]>(
     () => new Array(scenario.userSteps.length).fill(false),
   );
-  const { speak, speakSlow, isSpeaking } = useTextToSpeech();
 
   const sessionRef = useRef<ConversationSession | null>(null);
   const messagesRef = useRef<Message[]>([]);
@@ -301,34 +299,6 @@ export function ConversationScreen({
                   );
                 })}
               </div>
-            </div>
-
-            {/* Hear prompt buttons */}
-            <div className="mx-auto mb-6 flex w-full max-w-2xl flex-col gap-3 sm:flex-row sm:justify-center">
-              <button
-                className="btn action-btn text-white"
-                onClick={() => void speak(scenario.openingLine)}
-                disabled={isSpeaking || isBusy}
-                style={{ background: primarySurface, boxShadow: '0 18px 32px rgba(35, 49, 63, 0.16)' }}
-              >
-                <Play size={18} fill="currentColor" />
-                <span className="flex flex-col items-start leading-tight">
-                  <span>Hear prompt</span>
-                  <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.hearIt}</span>
-                </span>
-              </button>
-
-              <button
-                className="btn btn-secondary action-btn"
-                onClick={() => void speakSlow(scenario.openingLine)}
-                disabled={isSpeaking || isBusy}
-              >
-                <Turtle size={18} />
-                <span className="flex flex-col items-start leading-tight">
-                  <span>Repeat slowly</span>
-                  <span className="text-[0.72rem] font-medium opacity-75">{ROHINGYA_UI.repeatSlowly}</span>
-                </span>
-              </button>
             </div>
 
             {/* Chat window */}

@@ -29,11 +29,7 @@ export function SupportScreen({
   const handleSpeak = async (text: string, id: string, slow = false) => {
     setSpeakingId(id);
     try {
-      if (slow) {
-        await speakSlow(text);
-      } else {
-        await speak(text);
-      }
+      await (slow ? speakSlow(text) : speak(text));
     } finally {
       setSpeakingId(null);
     }

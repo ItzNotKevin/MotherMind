@@ -18,7 +18,17 @@ import { SupportScreen } from './components/SupportScreen';
 import { PronunciationScreen } from './components/PronunciationScreen';
 import type { PronunciationItem } from './components/PronunciationScreen';
 import { ROHINGYA_UI } from './lib/rohingya';
+import { SCENARIOS } from './lib/scenarios';
 import './index.css';
+
+const MOCK_FEEDBACK: SupportFeedback = {
+  encouragement: "Good try! You got your message across — just a couple of small things to polish.",
+  say_it_better: "Hi, I'm calling to let you know my daughter Amina in Grade 2 won't be at school today. She has a fever.",
+  understand_it_better: "This question means: What is the reason your child is not coming to school today?",
+  practice_word: "absent",
+  practice_phrase: "She won't be in today",
+  practice_sentence: "Hi, I'm calling to report my child absent — she has a fever and will stay home today.",
+};
 
 const TEST_ITEMS: PronunciationItem[] = [
   { label: 'Word', text: 'appointment' },
@@ -103,6 +113,14 @@ export default function App() {
     setScreen('conversation');
   }, []);
 
+  const handlePreviewSupport = useCallback(() => {
+    const scenario = SCENARIOS[0];
+    setSelectedScenario(scenario);
+    setSelectedCategory(scenario.categoryId);
+    setSupportFeedback(MOCK_FEEDBACK);
+    setScreen('support');
+  }, []);
+
   const handleStartLesson = useCallback(() => {
     if (!supportFeedback) return;
     setPronunciationItems([
@@ -145,7 +163,17 @@ export default function App() {
   );
 
   if (screen === 'home') {
-    return marketingShell(<HomeScreen onContinue={handleGoToTopics} />);
+    return marketingShell(
+      <>
+        <HomeScreen onContinue={handleGoToTopics} />
+        <button
+          onClick={handlePreviewSupport}
+          className="fixed bottom-4 right-4 px-3 py-1.5 rounded-full bg-black/60 text-white text-xs font-mono z-50"
+        >
+          dev: support
+        </button>
+      </>,
+    );
   }
 
   if (screen === 'topics') {

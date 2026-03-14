@@ -16,7 +16,7 @@ export function stopCurrentAudio(): void {
   }
 }
 
-async function playWithElevenLabs(text: string): Promise<void> {
+async function playWithElevenLabs(text: string, slow = false): Promise<void> {
   const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
     method: 'POST',
     headers: {
@@ -26,7 +26,7 @@ async function playWithElevenLabs(text: string): Promise<void> {
     body: JSON.stringify({
       text,
       model_id: 'eleven_turbo_v2_5',
-      voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.0 },
+      voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.0, speed: slow ? 0.7 : 1.0 },
     }),
   });
 
@@ -76,9 +76,9 @@ function playWithBrowser(text: string, rate = 0.9): Promise<void> {
 export async function speak(text: string, slow = false): Promise<void> {
   stopCurrentAudio();
 
-  if (ELEVENLABS_API_KEY && !slow) {
+  if (ELEVENLABS_API_KEY) {
     try {
-      await playWithElevenLabs(text);
+      await playWithElevenLabs(text, slow);
       return;
     } catch {
       // fall through to browser TTS

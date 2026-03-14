@@ -104,7 +104,10 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
   const stopListening = useCallback(() => {
     shouldKeepListening.current = false;
     recognitionRef.current?.stop();
-    setIsListening(false);
+    // Do NOT call setIsListening(false) here.
+    // recognition.onend fires after all pending onresult events, so letting
+    // it set isListening=false guarantees the transcript is complete before
+    // any effect that depends on isListening transitioning to false.
   }, []);
 
   const resetTranscript = useCallback(() => {

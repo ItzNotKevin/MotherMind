@@ -234,23 +234,28 @@ export async function generateSupportFeedback(
   const systemInstruction = `You are a warm, supportive English language coach helping a newcomer mother.
 Give gentle, practical feedback. Never use grammar jargon. Be encouraging.`;
 
+  // Determine if the user had real issues or did well overall
+  const hadIssues = struggles.some((s) => s.hasIssue);
+
   const prompt = `Scenario: "${scenario.title}" — talking to a ${scenario.aiRole}
 Goal: "${scenario.goal}"
 
 Full conversation:
 ${fullConversation}
 
-The mother said: ${userMessages.map((m) => `"${m.text}"`).join(' and ')}
-
-${struggleNotes ? `Specific issues detected during the conversation:\n${struggleNotes}\n` : ''}
+${struggleNotes ? `Issues detected:\n${struggleNotes}\n` : 'No major issues detected — the user communicated well.\n'}
 Return ONLY a valid JSON object. No markdown. No explanation. Just the JSON:
 {
-  "say_it_better": "Start with 'A clearer way to say it:' then give a natural improved version of what the mother said",
-  "understand_it_better": "Start with 'This question means:' then explain in simple words what the staff was asking. Max 2 sentences.",
+  "say_it_better": "${hadIssues
+    ? 'Write the complete sentence(s) the mother should have said. Use very simple English — short words, no jargon. Something a beginner can memorise and say. Do NOT start with a label — just the sentence(s).'
+    : 'Write a slightly more natural version of what she said. Keep it very simple and close to what she actually said. Do NOT start with a label — just the sentence(s).'}",
+  "understand_it_better": "Start with 'This question means:' then explain in simple words what the staff was asking. Max 1 sentence.",
   "practice_word": "the single most important word from this conversation for the mother to learn",
   "practice_phrase": "a short, high-value phrase (3-6 words) she should memorise for this situation",
-  "practice_sentence": "one complete, natural sentence she could say next time in this situation",
-  "encouragement": "A warm 1-sentence encouragement. Be gentle. E.g. 'Good try! You got your message across.' or 'Very close — just one small change makes it perfect.'"
+  "practice_sentence": "one short, easy sentence she can say next time. Use very simple words — imagine explaining to someone who just started learning English. Make it directly useful for what she struggled with.",
+  "encouragement": "${hadIssues
+    ? 'A warm 1-sentence encouragement that references something specific she got right, then gently notes the main thing to work on. Be gentle.'
+    : 'A warm 1-sentence encouragement that specifically mentions something she said well. Be genuine and specific.'}"
 }`;
 
   const raw = await generate(prompt, systemInstruction, 0.5, 400);

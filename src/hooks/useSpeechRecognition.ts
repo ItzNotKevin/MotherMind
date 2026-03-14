@@ -1,9 +1,9 @@
-import React, { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, type MutableRefObject } from 'react';
 
 interface UseSpeechRecognitionResult {
   isListening: boolean;
   transcript: string;
-  transcriptRef: React.MutableRefObject<string>;
+  transcriptRef: MutableRefObject<string>;
   isSupported: boolean;
   startListening: () => void;
   stopListening: () => void;
@@ -37,14 +37,18 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interim = '';
       let final = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const text = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
+
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const text = result[0].transcript;
+
+        if (result.isFinal) {
           final += text;
         } else {
           interim += text;
         }
       }
+
       if (final) accumulatedTranscript.current += final;
       const latest = accumulatedTranscript.current + interim;
       transcriptRef.current = latest;
@@ -52,7 +56,6 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
     };
 
     recognition.onend = () => {
-      // Auto-restart if the user hasn't manually stopped
       if (shouldKeepListening.current) {
         try {
           recognition.start();
@@ -64,17 +67,23 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
       }
     };
 
-    recognition.onerror = (e: Event) => {
-      const err = (e as ErrorEvent).message ?? '';
-      // 'no-speech' is fine — just restart
+    recognition.onerror = (event: Event) => {
+      const errorEvent = event as ErrorEvent;
+      const err = errorEvent.message ?? '';
+
       if (shouldKeepListening.current && err !== 'not-allowed') {
-        try { recognition.start(); } catch { /* ignore */ }
+        try {
+          recognition.start();
+        } catch {
+          setIsListening(false);
+        }
       } else {
         setIsListening(false);
       }
     };
 
     recognitionRef.current = recognition;
+
     try {
       recognition.start();
     } catch {
@@ -84,6 +93,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionResult {
 
   const startListening = useCallback(() => {
     if (!isSupported) return;
+
     accumulatedTranscript.current = '';
     transcriptRef.current = '';
     setTranscript('');

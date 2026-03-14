@@ -2,7 +2,7 @@ import type { Message, Scenario, Struggle, SupportFeedback } from '../types';
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string;
 const BASE_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent';
 
 interface GeminiResponse {
   candidates: Array<{

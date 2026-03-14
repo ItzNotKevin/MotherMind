@@ -44,6 +44,50 @@ async function generate(
   return data.candidates[0].content.parts[0].text;
 }
 
+// ─── Dynamic agent prompt generation ─────────────────────────────────────────
+
+export interface AgentPrompt {
+  systemPrompt: string;
+  firstMessage: string;
+}
+
+export async function generateAgentPrompt(scenario: Scenario): Promise<AgentPrompt> {
+  const prompt = `You are helping configure a voice AI for an English practice app used by newcomer mothers.
+
+Scenario: "${scenario.title}"
+The AI plays the role of: ${scenario.aiRole}
+The learner's goal: ${scenario.goal}
+Key vocabulary the learner should practice: ${scenario.targetVocab.join(', ')}
+Number of exchanges: ${scenario.maxTurns}
+
+Write a SHORT system prompt (under 120 words) for this AI character. It must:
+1. Define the role simply (who they are, where they work)
+2. Instruct the AI to use plain, everyday English only — no jargon
+3. Ask only ONE question at a time
+4. Naturally guide the conversation so the learner uses these words: ${scenario.targetVocab.slice(0, 5).join(', ')}
+5. After about ${scenario.maxTurns} exchanges, wrap up warmly and say goodbye
+
+Also write a natural, friendly opening line (1 sentence) for the ${scenario.aiRole}.
+
+Return ONLY valid JSON, no markdown:
+{
+  "systemPrompt": "...",
+  "firstMessage": "..."
+}`;
+
+  const raw = await generate(prompt, undefined, 0.3, 400);
+  try {
+    const cleaned = raw.replace(/```json\n?|\n?```|```/g, '').trim();
+    return JSON.parse(cleaned) as AgentPrompt;
+  } catch {
+    // Fallback to scenario defaults
+    return {
+      systemPrompt: `You are a ${scenario.aiRole}. Speak simply and clearly. Be warm and patient. Ask one question at a time. After ${scenario.maxTurns} exchanges, thank the person and say goodbye.`,
+      firstMessage: scenario.openingLine,
+    };
+  }
+}
+
 // ─── Conversation roleplay ────────────────────────────────────────────────────
 
 export async function getConversationResponse(

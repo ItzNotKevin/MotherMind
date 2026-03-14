@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Loader2, Volume2, RotateCcw, Target } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { ArrowLeft, Loader2, Target, PhoneOff } from 'lucide-react';
+import type { Mode, Status } from '@11labs/client';
 import type { Message, Scenario, Struggle, SupportFeedback } from '../types';
-import { MicButton } from './MicButton';
-import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
-import { useTextToSpeech } from '../hooks/useTextToSpeech';
-import { getConversationResponse, detectStruggle, generateSupportFeedback } from '../lib/gemini';
+import { generateAgentPrompt, detectStruggle, generateSupportFeedback } from '../lib/gemini';
+import { startConversationSession } from '../lib/elevenLabsConversation';
+import type { ConversationSession } from '../lib/elevenLabsConversation';
+
+const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID as string | undefined;
+const SARAH_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
 
 interface ConversationScreenProps {
   scenario: Scenario;
@@ -13,107 +16,164 @@ interface ConversationScreenProps {
   onBack: () => void;
 }
 
+type Phase =
+  | 'generating' // Calling Gemini to build the agent system prompt
+  | 'connecting' // Starting ElevenLabs WebRTC session
+  | 'active'     // Conversation in progress
+  | 'ending'     // endSession() called, waiting for disconnect
+  | 'analyzing'  // Post-conversation Gemini analysis
+  | 'error';
+
 export function ConversationScreen({
   scenario,
   categoryColor,
   onComplete,
   onBack,
 }: ConversationScreenProps) {
+  const [phase, setPhase] = useState<Phase>('generating');
+  const [mode, setMode] = useState<Mode>('listening');
+  const [status, setStatus] = useState<Status>('connecting');
   const [messages, setMessages] = useState<Message[]>([]);
-  const [struggles, setStruggles] = useState<Struggle[]>([]);
-  const [isAIThinking, setIsAIThinking] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [turnCount, setTurnCount] = useState(0);
-  const [draftText, setDraftText] = useState('');
-  const [isDone, setIsDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
+  const sessionRef = useRef<ConversationSession | null>(null);
+  const messagesRef = useRef<Message[]>([]);
+  const userTurnCountRef = useRef(0);
+  const endingRef = useRef(false); // guard against double-end
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const hasInitialized = useRef(false);
 
-  const { isListening, transcript, isSupported, startListening, stopListening, resetTranscript } =
-    useSpeechRecognition();
-  const { speak, isSpeaking } = useTextToSpeech();
+  // Keep ref in sync for use inside callbacks
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isAIThinking]);
+  }, [messages]);
 
-  useEffect(() => {
-    if (transcript) setDraftText(transcript);
-  }, [transcript]);
+  // ── Post-conversation analysis ─────────────────────────────────────────────
+  const runAnalysis = useCallback(async () => {
+    if (endingRef.current) return;
+    endingRef.current = true;
+    setPhase('analyzing');
 
-  // Speak opening line once on mount
+    const transcript = messagesRef.current;
+    const userMsgs = transcript.filter((m) => m.role === 'user');
+    const aiMsgs = transcript.filter((m) => m.role === 'ai');
+
+    // Detect struggles for every user turn, all in parallel
+    const strugglePromises = userMsgs.map((userMsg, i) => {
+      const aiQuestion = aiMsgs[i]?.text ?? scenario.openingLine;
+      return detectStruggle(scenario, aiQuestion, userMsg.text, i + 1);
+    });
+
+    const [struggles, ...rest] = await Promise.all([
+      Promise.all(strugglePromises),
+    ]);
+    void rest;
+
+    const feedback = await generateSupportFeedback(scenario, transcript, struggles);
+    onComplete(transcript, feedback, struggles);
+  }, [scenario, onComplete]);
+
+  // ── End the ElevenLabs session ─────────────────────────────────────────────
+  const endConversation = useCallback(async () => {
+    if (endingRef.current) return;
+    setPhase('ending');
+    try {
+      await sessionRef.current?.endSession();
+    } catch {
+      // session may already be closed — proceed to analysis
+      await runAnalysis();
+    }
+  }, [runAnalysis]);
+
+  // ── Start ElevenLabs session ────────────────────────────────────────────────
   useEffect(() => {
-    if (hasInitialized.current) return;
-    hasInitialized.current = true;
-    const opening: Message = { role: 'ai', text: scenario.openingLine };
-    setMessages([opening]);
-    void speak(scenario.openingLine);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!AGENT_ID) {
+      setErrorMsg(
+        'VITE_ELEVENLABS_AGENT_ID is not set. Create an agent at elevenlabs.io/app/conversational-ai and add it to .env.local',
+      );
+      setPhase('error');
+      return;
+    }
+
+    let cancelled = false;
+
+    async function init() {
+      try {
+        // 1. Generate system prompt via Gemini
+        const agentPrompt = await generateAgentPrompt(scenario);
+        if (cancelled) return;
+        setPhase('connecting');
+
+        // 2. Start WebRTC session
+        const session = await startConversationSession({
+          agentId: AGENT_ID!,
+          systemPrompt: agentPrompt.systemPrompt,
+          firstMessage: agentPrompt.firstMessage,
+          voiceId: SARAH_VOICE_ID,
+          onMessage: ({ role, text }) => {
+            const msg: Message = { role, text };
+            setMessages((prev) => [...prev, msg]);
+
+            if (role === 'user') {
+              userTurnCountRef.current += 1;
+              // Auto-end after maxTurns user messages
+              if (userTurnCountRef.current >= scenario.maxTurns) {
+                // Small delay so AI can finish its final response
+                setTimeout(() => void endConversation(), 2500);
+              }
+            }
+          },
+          onModeChange: (m) => setMode(m),
+          onStatusChange: (s) => {
+            setStatus(s);
+            if (s === 'connected') setPhase('active');
+          },
+          onDisconnect: () => void runAnalysis(),
+          onError: (err) => {
+            setErrorMsg(err);
+            setPhase('error');
+          },
+        });
+
+        if (cancelled) {
+          await session.endSession();
+          return;
+        }
+
+        sessionRef.current = session;
+      } catch (err) {
+        if (!cancelled) {
+          setErrorMsg(String(err));
+          setPhase('error');
+        }
+      }
+    }
+
+    void init();
+    return () => {
+      cancelled = true;
+      sessionRef.current?.endSession().catch(() => {});
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSubmit = async () => {
-    const text = draftText.trim();
-    if (!text || isAIThinking) return;
-
-    stopListening();
-    resetTranscript();
-    setDraftText('');
-    setError(null);
-
-    const withUser: Message[] = [...messages, { role: 'user', text }];
-    setMessages(withUser);
-    const newTurn = turnCount + 1;
-    setTurnCount(newTurn);
-
-    // The AI message that prompted this user response
-    const lastAiMessage =
-      [...messages].reverse().find((m) => m.role === 'ai')?.text ?? scenario.openingLine;
-
-    setIsAIThinking(true);
-    try {
-      // Run AI response + struggle detection in parallel — no added latency
-      const [aiText, struggle] = await Promise.all([
-        getConversationResponse(scenario, withUser, text),
-        detectStruggle(scenario, lastAiMessage, text, newTurn),
-      ]);
-
-      const newStruggles = [...struggles, struggle];
-      setStruggles(newStruggles);
-
-      const withAI: Message[] = [...withUser, { role: 'ai', text: aiText }];
-      setMessages(withAI);
-      await speak(aiText);
-
-      if (newTurn >= scenario.maxTurns) {
-        setIsDone(true);
-        setIsAnalyzing(true);
-        const feedback = await generateSupportFeedback(scenario, withAI, newStruggles);
-        onComplete(withAI, feedback, newStruggles);
-      }
-    } catch (err) {
-      console.error(err);
-      setError('Something went wrong. Please check your API key and try again.');
-    } finally {
-      setIsAIThinking(false);
-    }
-  };
-
-  const handleReplayLast = () => {
-    const lastAI = [...messages].reverse().find((m) => m.role === 'ai');
-    if (lastAI) void speak(lastAI.text);
-  };
-
-  const canSend = draftText.trim().length > 0 && !isAIThinking && !isSpeaking && !isDone;
+  // ── Derived UI state ────────────────────────────────────────────────────────
+  const userTurns = messages.filter((m) => m.role === 'user').length;
+  const isActive = phase === 'active';
+  const isBusy = phase === 'generating' || phase === 'connecting' || phase === 'ending' || phase === 'analyzing';
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
+
       {/* Header */}
       <div className="bg-white border-b border-gray-100 px-4 pt-12 pb-3 sticky top-0 z-10 shadow-sm">
         <button
           onClick={onBack}
-          className="flex items-center gap-1 text-gray-400 mb-3 -ml-1 px-1 py-1 rounded active:bg-gray-100"
+          disabled={isBusy}
+          className="flex items-center gap-1 text-gray-400 mb-3 -ml-1 px-1 py-1 rounded active:bg-gray-100 disabled:opacity-30"
         >
           <ArrowLeft size={16} />
           <span className="text-sm">Exit</span>
@@ -126,24 +186,19 @@ export function ConversationScreen({
             AI
           </div>
           <div className="flex-1 min-w-0">
-            <p
-              className="font-semibold text-gray-900 text-sm leading-tight truncate"
-              style={{ fontFamily: 'Outfit, system-ui, sans-serif' }}
-            >
+            <p className="font-semibold text-gray-900 text-sm leading-tight truncate"
+              style={{ fontFamily: 'Outfit, system-ui, sans-serif' }}>
               {scenario.title}
             </p>
-            <p className="text-xs text-gray-400 leading-tight">
-              Speaking with {scenario.aiRole}
-            </p>
+            <p className="text-xs text-gray-400 leading-tight">Speaking with {scenario.aiRole}</p>
           </div>
-          <button
-            onClick={handleReplayLast}
-            disabled={isSpeaking || messages.length === 0}
-            className="p-2 text-gray-300 hover:text-gray-500 disabled:opacity-30 rounded-lg active:bg-gray-100"
-            aria-label="Replay last message"
-          >
-            <Volume2 size={18} />
-          </button>
+          {/* Connection dot */}
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-green-400' : 'bg-gray-300'}`}
+            />
+            <span className="text-xs text-gray-400 capitalize">{status}</span>
+          </div>
         </div>
       </div>
 
@@ -152,27 +207,29 @@ export function ConversationScreen({
         className="mx-4 mt-3 px-4 py-2.5 rounded-xl flex items-start gap-2"
         style={{ background: `${categoryColor}12`, border: `1px solid ${categoryColor}25` }}
       >
-        <Target size={15} className="mt-0.5 flex-shrink-0" style={{ color: categoryColor }} />
+        <Target size={14} className="mt-0.5 flex-shrink-0" style={{ color: categoryColor }} />
         <p className="text-xs leading-relaxed font-medium" style={{ color: categoryColor }}>
           {scenario.goal}
         </p>
       </div>
 
       {/* Turn progress */}
-      <div className="px-4 pt-2.5">
-        <div className="flex gap-1.5">
-          {Array.from({ length: scenario.maxTurns }).map((_, i) => (
-            <div
-              key={i}
-              className="flex-1 h-1.5 rounded-full transition-all duration-300"
-              style={{ background: i < turnCount ? categoryColor : '#e5e7eb' }}
-            />
-          ))}
+      {isActive && (
+        <div className="px-4 pt-2.5">
+          <div className="flex gap-1.5">
+            {Array.from({ length: scenario.maxTurns }).map((_, i) => (
+              <div
+                key={i}
+                className="flex-1 h-1.5 rounded-full transition-all duration-300"
+                style={{ background: i < userTurns ? categoryColor : '#e5e7eb' }}
+              />
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 text-right mt-1">
+            {userTurns} / {scenario.maxTurns} turns
+          </p>
         </div>
-        <p className="text-xs text-gray-400 text-right mt-1">
-          {turnCount} / {scenario.maxTurns} turns
-        </p>
-      </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
@@ -193,123 +250,105 @@ export function ConversationScreen({
             </div>
           </div>
         ))}
-
-        {/* AI typing indicator */}
-        {isAIThinking && (
-          <div className="flex justify-start">
-            <div className="bg-white border border-gray-100 px-4 py-3 rounded-2xl rounded-tl-sm shadow-sm">
-              <div className="flex gap-1 items-center h-4">
-                {[0, 150, 300].map((delay) => (
-                  <span
-                    key={delay}
-                    className="w-2 h-2 bg-gray-300 rounded-full animate-bounce"
-                    style={{ animationDelay: `${delay}ms` }}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {isAnalyzing && (
-          <div className="flex justify-center py-2">
-            <div
-              className="px-4 py-3 rounded-xl text-sm flex items-center gap-2 font-medium"
-              style={{
-                background: `${categoryColor}15`,
-                color: categoryColor,
-                border: `1px solid ${categoryColor}30`,
-              }}
-            >
-              <Loader2 size={16} className="animate-spin" />
-              Preparing your practice...
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <div className="flex justify-center">
-            <div className="bg-red-50 border border-red-100 text-red-600 text-sm px-4 py-3 rounded-xl max-w-xs text-center">
-              {error}
-            </div>
-          </div>
-        )}
-
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area */}
-      {!isDone && (
-        <div className="bg-white border-t border-gray-100 px-5 py-5 space-y-4">
-          {/* Live transcript preview */}
-          {(draftText || isListening) && (
-            <div
-              className="rounded-xl px-4 py-3 text-sm min-h-[44px] leading-relaxed"
-              style={{ background: `${categoryColor}10`, color: categoryColor }}
-            >
-              {draftText || <span className="opacity-60 italic">Listening...</span>}
-            </div>
-          )}
+      {/* Voice status + controls */}
+      <div className="bg-white border-t border-gray-100 px-6 py-6 flex flex-col items-center gap-5">
 
-          <div className="flex items-center gap-4">
-            <div className="flex-1 flex justify-center">
-              <MicButton
-                isListening={isListening}
-                isSupported={isSupported}
-                disabled={isAIThinking || isSpeaking}
-                onStart={startListening}
-                onStop={stopListening}
-              />
-            </div>
-
-            {draftText && !isListening && (
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={() => void handleSubmit()}
-                  disabled={!canSend}
-                  className="px-5 py-3 rounded-xl text-white font-semibold text-sm shadow-sm disabled:opacity-40 transition-all active:scale-95"
-                  style={{ background: categoryColor }}
-                >
-                  Send →
-                </button>
-                <button
-                  onClick={() => {
-                    setDraftText('');
-                    resetTranscript();
-                  }}
-                  className="px-4 py-2 rounded-xl bg-gray-100 text-gray-500 text-sm font-medium flex items-center gap-1.5 justify-center"
-                >
-                  <RotateCcw size={13} />
-                  Redo
-                </button>
-              </div>
-            )}
+        {/* Error */}
+        {phase === 'error' && (
+          <div className="w-full bg-red-50 border border-red-100 text-red-600 text-sm px-4 py-3 rounded-xl text-center leading-relaxed">
+            {errorMsg}
           </div>
+        )}
 
-          {/* Text fallback if speech not supported */}
-          {!isSupported && (
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Type your response here..."
-                value={draftText}
-                onChange={(e) => setDraftText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && void handleSubmit()}
-                className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-purple-300"
-                disabled={isAIThinking}
+        {/* Loading / analyzing states */}
+        {(phase === 'generating' || phase === 'connecting' || phase === 'ending' || phase === 'analyzing') && (
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 size={28} className="animate-spin" style={{ color: categoryColor }} />
+            <p className="text-sm text-gray-500">
+              {phase === 'generating' && 'Preparing your conversation...'}
+              {phase === 'connecting' && 'Connecting...'}
+              {phase === 'ending' && 'Finishing up...'}
+              {phase === 'analyzing' && 'Preparing your practice...'}
+            </p>
+          </div>
+        )}
+
+        {/* Active voice orb */}
+        {isActive && (
+          <VoiceOrb mode={mode} color={categoryColor} />
+        )}
+
+        {/* End button */}
+        {isActive && (
+          <button
+            onClick={() => void endConversation()}
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-red-50 text-red-500 font-semibold text-sm border border-red-100 active:scale-95 transition-transform"
+          >
+            <PhoneOff size={16} />
+            End conversation
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Voice orb component ────────────────────────────────────────────────────────
+
+function VoiceOrb({ mode, color }: { mode: Mode; color: string }) {
+  const isSpeaking = mode === 'speaking';
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      {/* Orb */}
+      <div className="relative flex items-center justify-center">
+        {/* Ripple rings */}
+        {[1, 2, 3].map((i) => (
+          <span
+            key={i}
+            className="absolute rounded-full"
+            style={{
+              width: 80 + i * 22,
+              height: 80 + i * 22,
+              background: `${color}${isSpeaking ? Math.round(18 - i * 5).toString(16).padStart(2, '0') : '08'}`,
+              animation: isSpeaking
+                ? `ping ${0.8 + i * 0.2}s cubic-bezier(0, 0, 0.2, 1) infinite`
+                : `pulse ${2 + i * 0.4}s ease-in-out infinite`,
+              animationDelay: `${i * 0.15}s`,
+            }}
+          />
+        ))}
+
+        {/* Core orb */}
+        <div
+          className="relative z-10 w-20 h-20 rounded-full flex items-center justify-center shadow-lg"
+          style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}
+        >
+          {/* Simple audio bars */}
+          <div className="flex gap-1 items-center h-8">
+            {[1, 1.5, 1, 1.8, 1, 1.4, 1].map((h, i) => (
+              <div
+                key={i}
+                className="w-0.5 rounded-full bg-white"
+                style={{
+                  height: isSpeaking ? `${h * 14}px` : '6px',
+                  transition: 'height 0.15s ease',
+                  animation: isSpeaking
+                    ? `bounce ${0.5 + i * 0.07}s ease-in-out infinite alternate`
+                    : 'none',
+                }}
               />
-              <button
-                onClick={() => void handleSubmit()}
-                disabled={!canSend}
-                className="px-4 py-3 rounded-xl text-white font-medium text-sm disabled:opacity-40"
-                style={{ background: categoryColor }}
-              >
-                →
-              </button>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
-      )}
+      </div>
+
+      <p className="text-sm font-medium text-gray-500">
+        {isSpeaking ? 'AI is speaking...' : 'Listening — speak now'}
+      </p>
     </div>
   );
 }

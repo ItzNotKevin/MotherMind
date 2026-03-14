@@ -164,68 +164,64 @@ h6 {
 /* Category Selection */
 .category-selection {
   text-align: center;
-  padding-top: 2rem;
-}
-
-.category-selection h2 {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-  color: var(--text-main);
+  padding-top: 1.5rem;
 }
 
 .subtitle {
   color: var(--text-muted);
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
   font-size: 1.1rem;
 }
 
 .category-grid {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 1rem;
 }
 
 .category-card {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  padding: 1.25rem;
+  justify-content: center;
+  gap: 0.875rem;
+  padding: 2rem 1rem 1.75rem;
   border: 1px solid var(--border-color);
   background: var(--surface-glass);
+  border-radius: var(--radius-xl);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  text-align: left;
-  position: relative;
-  overflow: hidden;
+  min-height: 160px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-sm);
 }
 
 .category-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-4px);
   border-color: var(--card-color);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 12px 28px -6px color-mix(in srgb, var(--card-color) 30%, transparent);
 }
 
-.icon-wrapper {
-  width: 3.5rem;
-  height: 3.5rem;
+.category-card:active {
+  transform: scale(0.97);
+}
+
+.card-icon-bg {
+  width: 5rem;
+  height: 5rem;
   border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 1.25rem;
 }
 
-.category-card h3 {
-  font-size: 1.25rem;
+.card-label {
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  font-weight: 600;
   color: var(--text-main);
-}
-
-.card-arrow {
-  margin-left: auto;
-  transition: transform 0.2s ease;
-}
-
-.category-card:hover .card-arrow {
-  transform: translateX(4px);
+  letter-spacing: 0.01em;
 }
 
 /* Practice View */
@@ -424,5 +420,51 @@ h6 {
   border-radius: 50%;
   display: flex;
   align-items: center;
+  justify-content: center;
+}
+
+/* Completion Screen */
+.complete-view {
+  padding: 3rem 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.trophy-ring {
+  width: 8rem;
+  height: 8rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+  animation: pop-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.complete-title {
+  font-size: 2.25rem;
+  color: var(--text-main);
+}
+
+.complete-subtitle {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  line-height: 1.7;
+  max-width: 280px;
+}
+
+.complete-actions {
+  display: flex;
+  gap: 0.875rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
   justify-content: center;
 }

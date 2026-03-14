@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { ArrowLeft, Loader2, Target, PhoneOff } from 'lucide-react';
-import type { Mode, Status } from '@11labs/client';
+import { ArrowLeft, Loader2, Target } from 'lucide-react';
+import type { Mode } from '@11labs/client';
 import type { Message, Scenario, Struggle, SupportFeedback } from '../types';
-import { generateAgentPrompt, detectStruggle, generateSupportFeedback } from '../lib/gemini';
+import { detectStruggle, generateSupportFeedback } from '../lib/gemini';
 import { startConversationSession } from '../lib/elevenLabsConversation';
 import type { ConversationSession } from '../lib/elevenLabsConversation';
 
 const AGENT_ID = import.meta.env.VITE_ELEVENLABS_AGENT_ID as string | undefined;
-const SARAH_VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
 
 interface ConversationScreenProps {
   scenario: Scenario;
@@ -16,13 +15,7 @@ interface ConversationScreenProps {
   onBack: () => void;
 }
 
-type Phase =
-  | 'generating' // Calling Gemini to build the agent system prompt
-  | 'connecting' // Starting ElevenLabs WebRTC session
-  | 'active'     // Conversation in progress
-  | 'ending'     // endSession() called, waiting for disconnect
-  | 'analyzing'  // Post-conversation Gemini analysis
-  | 'error';
+type Phase = 'connecting' | 'active' | 'analyzing' | 'error';
 
 export function ConversationScreen({
   scenario,
@@ -30,22 +23,17 @@ export function ConversationScreen({
   onComplete,
   onBack,
 }: ConversationScreenProps) {
-  const [phase, setPhase] = useState<Phase>('generating');
+  const [phase, setPhase] = useState<Phase>('connecting');
   const [mode, setMode] = useState<Mode>('listening');
-  const [status, setStatus] = useState<Status>('connecting');
   const [messages, setMessages] = useState<Message[]>([]);
   const [errorMsg, setErrorMsg] = useState('');
 
   const sessionRef = useRef<ConversationSession | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const userTurnCountRef = useRef(0);
-  const endingRef = useRef(false);
-  // Set true only once the session is confirmed connected.
-  // Prevents React StrictMode's cleanup-unmount from triggering analysis.
-  const liveRef = useRef(false);
+  const analysisRanRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Keep ref in sync for use inside callbacks
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
@@ -54,42 +42,31 @@ export function ConversationScreen({
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // ── Post-conversation analysis ─────────────────────────────────────────────
+  // ── Post-conversation Gemini analysis ─────────────────────────────────────
   const runAnalysis = useCallback(async () => {
-    if (endingRef.current) return;
-    endingRef.current = true;
+    if (analysisRanRef.current) return;
+    analysisRanRef.current = true;
     setPhase('analyzing');
 
     const transcript = messagesRef.current;
     const userMsgs = transcript.filter((m) => m.role === 'user');
     const aiMsgs = transcript.filter((m) => m.role === 'ai');
 
-    const strugglePromises = userMsgs.map((userMsg, i) => {
-      const aiQuestion = aiMsgs[i]?.text ?? scenario.openingLine;
-      return detectStruggle(scenario, aiQuestion, userMsg.text, i + 1);
-    });
+    const struggles = await Promise.all(
+      userMsgs.map((userMsg, i) => {
+        const aiQuestion = aiMsgs[i]?.text ?? scenario.openingLine;
+        return detectStruggle(scenario, aiQuestion, userMsg.text, i + 1);
+      }),
+    );
 
-    const struggles = await Promise.all(strugglePromises);
     const feedback = await generateSupportFeedback(scenario, transcript, struggles);
     onComplete(transcript, feedback, struggles);
   }, [scenario, onComplete]);
 
-  // ── End the ElevenLabs session ─────────────────────────────────────────────
-  const endConversation = useCallback(async () => {
-    if (endingRef.current) return;
-    setPhase('ending');
-    try {
-      await sessionRef.current?.endSession();
-    } catch {
-      // session already closed — run analysis directly
-      await runAnalysis();
-    }
-  }, [runAnalysis]);
-
-  // ── Start ElevenLabs session ────────────────────────────────────────────────
+  // ── Connect to ElevenLabs agent on mount ──────────────────────────────────
   useEffect(() => {
     if (!AGENT_ID) {
-      setErrorMsg('VITE_ELEVENLABS_AGENT_ID is not set. Add it to .env.local');
+      setErrorMsg('VITE_ELEVENLABS_AGENT_ID is not set.');
       setPhase('error');
       return;
     }
@@ -98,37 +75,35 @@ export function ConversationScreen({
 
     async function init() {
       try {
-        const agentPrompt = await generateAgentPrompt(scenario);
-        if (cancelled) return;
-        setPhase('connecting');
-
         const session = await startConversationSession({
           agentId: AGENT_ID!,
-          systemPrompt: agentPrompt.systemPrompt,
-          firstMessage: agentPrompt.firstMessage,
-          voiceId: SARAH_VOICE_ID,
+          firstMessage: scenario.openingLine,
           onMessage: ({ role, text }) => {
-            setMessages((prev) => [...prev, { role, text }]);
+            const msg: Message = { role, text };
+            setMessages((prev) => {
+              const updated = [...prev, msg];
+              messagesRef.current = updated;
+              return updated;
+            });
             if (role === 'user') {
               userTurnCountRef.current += 1;
-              if (userTurnCountRef.current >= scenario.maxTurns) {
-                setTimeout(() => void endConversation(), 2500);
-              }
             }
           },
           onModeChange: (m) => setMode(m),
           onStatusChange: (s) => {
-            setStatus(s);
-            if (s === 'connected') {
-              liveRef.current = true;
-              setPhase('active');
-            }
+            if (s === 'connected') setPhase('active');
           },
-          // Only run analysis on disconnect if the session was genuinely live.
-          // This prevents React StrictMode's cleanup unmount → endSession → onDisconnect
-          // from firing analysis before the user has said anything.
           onDisconnect: () => {
-            if (liveRef.current) void runAnalysis();
+            // Only run analysis if the user actually spoke.
+            // This naturally handles React StrictMode's cleanup-unmount
+            // (which fires before any user interaction) and any other
+            // premature disconnects.
+            if (userTurnCountRef.current > 0) {
+              void runAnalysis();
+            } else if (!cancelled) {
+              setErrorMsg('Connection ended before the conversation started. Please try again.');
+              setPhase('error');
+            }
           },
           onError: (err) => {
             setErrorMsg(err);
@@ -137,9 +112,7 @@ export function ConversationScreen({
         });
 
         if (cancelled) {
-          // StrictMode cleanup: kill session silently, do NOT run analysis
-          liveRef.current = false;
-          await session.endSession();
+          await session.endSession().catch(() => {});
           return;
         }
 
@@ -155,16 +128,12 @@ export function ConversationScreen({
     void init();
     return () => {
       cancelled = true;
-      liveRef.current = false; // prevent onDisconnect from triggering analysis
       sessionRef.current?.endSession().catch(() => {});
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Derived UI state ────────────────────────────────────────────────────────
   const userTurns = messages.filter((m) => m.role === 'user').length;
-  const isActive = phase === 'active';
-  const isBusy = phase === 'generating' || phase === 'connecting' || phase === 'ending' || phase === 'analyzing';
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -173,7 +142,7 @@ export function ConversationScreen({
       <div className="bg-white border-b border-gray-100 px-4 pt-12 pb-3 sticky top-0 z-10 shadow-sm">
         <button
           onClick={onBack}
-          disabled={isBusy}
+          disabled={phase === 'analyzing'}
           className="flex items-center gap-1 text-gray-400 mb-3 -ml-1 px-1 py-1 rounded active:bg-gray-100 disabled:opacity-30"
         >
           <ArrowLeft size={16} />
@@ -191,14 +160,19 @@ export function ConversationScreen({
               style={{ fontFamily: 'Outfit, system-ui, sans-serif' }}>
               {scenario.title}
             </p>
-            <p className="text-xs text-gray-400 leading-tight">Speaking with {scenario.aiRole}</p>
+            <p className="text-xs text-gray-400 leading-tight">
+              Speaking with {scenario.aiRole}
+            </p>
           </div>
-          {/* Connection dot */}
           <div className="flex items-center gap-1.5">
             <span
-              className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-green-400' : 'bg-gray-300'}`}
+              className={`w-2 h-2 rounded-full transition-colors ${
+                phase === 'active' ? 'bg-green-400' : 'bg-gray-300'
+              }`}
             />
-            <span className="text-xs text-gray-400 capitalize">{status}</span>
+            <span className="text-xs text-gray-400 capitalize">
+              {phase === 'connecting' ? 'connecting' : phase === 'active' ? 'live' : phase}
+            </span>
           </div>
         </div>
       </div>
@@ -215,7 +189,7 @@ export function ConversationScreen({
       </div>
 
       {/* Turn progress */}
-      {isActive && (
+      {phase === 'active' && (
         <div className="px-4 pt-2.5">
           <div className="flex gap-1.5">
             {Array.from({ length: scenario.maxTurns }).map((_, i) => (
@@ -254,59 +228,45 @@ export function ConversationScreen({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Voice status + controls */}
-      <div className="bg-white border-t border-gray-100 px-6 py-6 flex flex-col items-center gap-5">
+      {/* Bottom panel */}
+      <div className="bg-white border-t border-gray-100 px-6 py-6 flex flex-col items-center gap-4">
 
-        {/* Error */}
         {phase === 'error' && (
-          <div className="w-full bg-red-50 border border-red-100 text-red-600 text-sm px-4 py-3 rounded-xl text-center leading-relaxed">
+          <div className="w-full bg-red-50 border border-red-100 text-red-600 text-sm px-4 py-3 rounded-xl text-center">
             {errorMsg}
           </div>
         )}
 
-        {/* Loading / analyzing states */}
-        {(phase === 'generating' || phase === 'connecting' || phase === 'ending' || phase === 'analyzing') && (
+        {phase === 'connecting' && (
           <div className="flex flex-col items-center gap-2">
             <Loader2 size={28} className="animate-spin" style={{ color: categoryColor }} />
-            <p className="text-sm text-gray-500">
-              {phase === 'generating' && 'Preparing your conversation...'}
-              {phase === 'connecting' && 'Connecting...'}
-              {phase === 'ending' && 'Finishing up...'}
-              {phase === 'analyzing' && 'Preparing your practice...'}
-            </p>
+            <p className="text-sm text-gray-500">Connecting...</p>
           </div>
         )}
 
-        {/* Active voice orb */}
-        {isActive && (
-          <VoiceOrb mode={mode} color={categoryColor} />
+        {phase === 'analyzing' && (
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 size={28} className="animate-spin" style={{ color: categoryColor }} />
+            <p className="text-sm text-gray-500">Preparing your practice...</p>
+          </div>
         )}
 
-        {/* End button */}
-        {isActive && (
-          <button
-            onClick={() => void endConversation()}
-            className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-red-50 text-red-500 font-semibold text-sm border border-red-100 active:scale-95 transition-transform"
-          >
-            <PhoneOff size={16} />
-            End conversation
-          </button>
+        {phase === 'active' && (
+          <VoiceOrb mode={mode} color={categoryColor} />
         )}
       </div>
     </div>
   );
 }
 
-// ── Voice orb component ────────────────────────────────────────────────────────
+// ── Voice orb ──────────────────────────────────────────────────────────────────
 
 function VoiceOrb({ mode, color }: { mode: Mode; color: string }) {
   const isSpeaking = mode === 'speaking';
 
   return (
     <div className="flex flex-col items-center gap-3">
-      {/* Orb */}
       <div className="relative flex items-center justify-center">
-        {/* Ripple rings */}
         {[1, 2, 3].map((i) => (
           <span
             key={i}
@@ -314,21 +274,20 @@ function VoiceOrb({ mode, color }: { mode: Mode; color: string }) {
             style={{
               width: 80 + i * 22,
               height: 80 + i * 22,
-              background: `${color}${isSpeaking ? Math.round(18 - i * 5).toString(16).padStart(2, '0') : '08'}`,
+              background: `${color}${isSpeaking
+                ? Math.max(8, 18 - i * 5).toString(16).padStart(2, '0')
+                : '08'}`,
               animation: isSpeaking
-                ? `ping ${0.8 + i * 0.2}s cubic-bezier(0, 0, 0.2, 1) infinite`
+                ? `ping ${0.8 + i * 0.2}s cubic-bezier(0,0,0.2,1) infinite`
                 : `pulse ${2 + i * 0.4}s ease-in-out infinite`,
               animationDelay: `${i * 0.15}s`,
             }}
           />
         ))}
-
-        {/* Core orb */}
         <div
           className="relative z-10 w-20 h-20 rounded-full flex items-center justify-center shadow-lg"
           style={{ background: `linear-gradient(135deg, ${color}, ${color}cc)` }}
         >
-          {/* Simple audio bars */}
           <div className="flex gap-1 items-center h-8">
             {[1, 1.5, 1, 1.8, 1, 1.4, 1].map((h, i) => (
               <div
@@ -346,7 +305,6 @@ function VoiceOrb({ mode, color }: { mode: Mode; color: string }) {
           </div>
         </div>
       </div>
-
       <p className="text-sm font-medium text-gray-500">
         {isSpeaking ? 'AI is speaking...' : 'Listening — speak now'}
       </p>

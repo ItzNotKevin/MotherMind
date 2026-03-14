@@ -17,6 +17,7 @@ async function generate(
   systemInstruction?: string,
   temperature = 0.7,
   maxTokens = 300,
+  disableThinking = false,
 ): Promise<string> {
   const body = {
     ...(systemInstruction && {
@@ -26,6 +27,7 @@ async function generate(
     generationConfig: {
       temperature,
       maxOutputTokens: maxTokens,
+      ...(disableThinking && { thinkingConfig: { thinkingBudget: 0 } }),
     },
   };
 
@@ -121,7 +123,9 @@ STRICT RULES:
 
 Reply as the ${scenario.aiRole}. 1-2 sentences only.`;
 
-  return generate(prompt, systemInstruction, 0.7, 150);
+  // disableThinking=true: gemini-2.5-flash thinking tokens eat into maxOutputTokens,
+  // causing responses to be cut off mid-sentence without it.
+  return generate(prompt, systemInstruction, 0.7, 300, true);
 }
 
 // ─── Per-turn struggle detection (runs in parallel with AI response) ──────────

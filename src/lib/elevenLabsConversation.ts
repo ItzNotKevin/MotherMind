@@ -17,9 +17,7 @@ export interface ConversationSession {
 
 interface StartOptions {
   agentId: string;
-  systemPrompt: string;
   firstMessage: string;
-  voiceId?: string;
   onMessage: (msg: ConversationMessage) => void;
   onModeChange: (mode: Mode) => void;
   onStatusChange: (status: Status) => void;
@@ -34,12 +32,11 @@ export async function startConversationSession(
     agentId: options.agentId,
     connectionType: 'webrtc',
     overrides: {
+      // Only override the opening line — use the agent's built-in system prompt and voice
       agent: {
-        prompt: { prompt: options.systemPrompt },
         firstMessage: options.firstMessage,
         language: 'en',
       },
-      tts: options.voiceId ? { voiceId: options.voiceId } : undefined,
     },
     onMessage: ({ message, source }) => {
       options.onMessage({ role: source === 'ai' ? 'ai' : 'user', text: message });

@@ -1,7 +1,7 @@
 // ElevenLabs TTS with browser speech synthesis fallback
 
 const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY as string | undefined;
-const VOICE_ID = 'EXAVITQu4vr4xnSDxMaL'; // Sarah — warm female voice
+const VOICE_ID = 'cjVigY5qzO86Huf0OWal'; // matches the preset voice on the ElevenLabs agent
 
 let currentAudio: HTMLAudioElement | null = null;
 
